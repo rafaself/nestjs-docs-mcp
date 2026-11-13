@@ -1,7 +1,8 @@
 import * as z from 'zod';
-import type { FetchedDocumentation } from '../../application/contracts/documentation-reader.contract.js';
-import { DOCUMENT_ID_PATTERN } from '../../domain/documentation-version.js';
-import { MAX_SEARCH_QUERY_LENGTH } from '../../retrieval/search.constants.js';
+import {
+  MAX_DOCUMENT_ID_LENGTH,
+  MAX_SEARCH_QUERY_LENGTH,
+} from '@nestjs-docs/documentation-engine/retrieval/search.constants.js';
 
 const MAX_TOOL_SEARCH_RESULTS = 10;
 
@@ -12,7 +13,7 @@ export const searchDocsInputSchema = z.strictObject({
     .min(1)
     .max(MAX_SEARCH_QUERY_LENGTH)
     .describe(
-      'Natural-language terms or an exact NestJS identifier to search.',
+      'Natural-language terms or an exact identifier from the indexed documentation.',
     ),
   limit: z
     .number()
@@ -26,7 +27,10 @@ export const searchDocsInputSchema = z.strictObject({
 export const fetchDocsInputSchema = z.strictObject({
   documentId: z
     .string()
-    .regex(DOCUMENT_ID_PATTERN)
+    .trim()
+    .min(1)
+    .max(MAX_DOCUMENT_ID_LENGTH)
+    .refine((value) => !containsForbiddenControlCharacters(value))
     .describe('The deterministic document ID returned by search_docs.'),
   sectionId: z
     .string()
@@ -55,12 +59,14 @@ const searchResultSchema = z.object({
 });
 
 export const searchDocsOutputSchema = z.object({
-  documentationVersion: z.number(),
+  documentationId: z.string(),
+  documentationVersion: z.string(),
   results: z.array(searchResultSchema),
 });
 
 export const fetchDocsOutputSchema = z.object({
-  documentationVersion: z.number(),
+  documentationId: z.string(),
+  documentationVersion: z.string(),
   documentId: z.string(),
   sectionId: z.string().nullable(),
   found: z.boolean(),
@@ -82,7 +88,17 @@ export type SearchDocsOutput = z.infer<typeof searchDocsOutputSchema>;
 export type FetchDocsInput = z.infer<typeof fetchDocsInputSchema>;
 export type FetchDocsOutput = z.infer<typeof fetchDocsOutputSchema>;
 
-export interface FetchDocsPresentationInput extends FetchDocsInput {
-  documentationVersion: number;
-  document: FetchedDocumentation | null;
+function containsForbiddenControlCharacters(value: string): boolean {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (
+      code <= 8 ||
+      (code >= 11 && code <= 12) ||
+      (code >= 14 && code <= 31) ||
+      code === 127
+    ) {
+      return true;
+    }
+  }
+  return false;
 }

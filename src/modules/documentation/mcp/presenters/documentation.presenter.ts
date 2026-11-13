@@ -1,23 +1,30 @@
 import type {
   DocumentationSearchResult,
   FetchedDocumentation,
-} from '../../application/contracts/documentation-reader.contract.js';
+} from '@nestjs-docs/documentation-engine/application/contracts/documentation-reader.contract.js';
+import type { DocumentationIdentity } from '@nestjs-docs/documentation-engine/domain/documentation.types.js';
 import type {
-  FetchDocsPresentationInput,
+  FetchDocsInput,
   FetchDocsOutput,
   SearchDocsOutput,
 } from '../contracts/documentation-tools.contract.js';
 
+interface FetchDocsPresentationInput extends FetchDocsInput {
+  documentationId: string;
+  documentationVersion: string;
+  document: FetchedDocumentation | null;
+}
+
 export function presentSearchResults(
   results: DocumentationSearchResult[],
-  documentationVersion: number,
+  documentation: DocumentationIdentity,
 ): {
   content: [{ type: 'text'; text: string }];
   structuredContent: SearchDocsOutput;
 } {
   const formatted = results.length
     ? [
-        `Documentation major: v${documentationVersion}`,
+        `Documentation: ${documentation.id}@${documentation.version}`,
         ...results.map((result, index) =>
           [
             `### ${index + 1}. ${result.title}`,
@@ -29,17 +36,22 @@ export function presentSearchResults(
           ].join('\n'),
         ),
       ].join('\n\n')
-    : 'No matching NestJS documentation found.';
+    : 'No matching documentation found.';
 
   return {
     content: [{ type: 'text', text: formatted }],
-    structuredContent: { documentationVersion, results },
+    structuredContent: {
+      documentationId: documentation.id,
+      documentationVersion: documentation.version,
+      results,
+    },
   };
 }
 
 export function presentFetchedDocumentation({
   document,
   documentId,
+  documentationId,
   sectionId,
   documentationVersion,
 }: FetchDocsPresentationInput): {
@@ -55,6 +67,7 @@ export function presentFetchedDocumentation({
         },
       ],
       structuredContent: {
+        documentationId,
         documentationVersion,
         documentId,
         sectionId: sectionId ?? null,
@@ -72,10 +85,11 @@ export function presentFetchedDocumentation({
     content: [
       {
         type: 'text',
-        text: formatDocument(document, documentationVersion),
+        text: formatDocument(document, documentationId, documentationVersion),
       },
     ],
     structuredContent: {
+      documentationId,
       documentationVersion,
       documentId,
       sectionId: sectionId ?? null,
@@ -91,7 +105,8 @@ export function presentFetchedDocumentation({
 
 function formatDocument(
   document: FetchedDocumentation,
-  documentationVersion: number,
+  documentationId: string,
+  documentationVersion: string,
 ): string {
   const sections = document.sections
     .map(
@@ -105,7 +120,7 @@ function formatDocument(
 
   return [
     `# ${document.title}`,
-    `Documentation major: v${documentationVersion}`,
+    `Documentation: ${documentationId}@${documentationVersion}`,
     `Document ID: ${document.documentId}`,
     `Source revision: ${document.sourceRevision}`,
     '',

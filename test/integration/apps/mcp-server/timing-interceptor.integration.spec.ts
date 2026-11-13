@@ -8,10 +8,24 @@ import { jest } from '@jest/globals';
 import { McpServerModule } from '../../../../src/apps/mcp-server/mcp-server.module.js';
 import { McpTimingInterceptor } from '../../../../src/modules/documentation/mcp/timing.interceptor.js';
 import { lastValueFrom, NEVER, of, throwError } from 'rxjs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createMcpServerTestIndex } from '../../../fixtures/mcp-server-index.js';
 
 describe('MCP timing interceptor', () => {
   const originalDebug = process.env.DEBUG;
   let log: jest.SpiedFunction<Logger['log']>;
+  let directory: string;
+  let databasePath: string;
+
+  beforeAll(() => {
+    directory = mkdtempSync(join(tmpdir(), 'mcp-timing-registration-'));
+    databasePath = join(directory, 'index.sqlite');
+    createMcpServerTestIndex(databasePath);
+  });
+
+  afterAll(() => rmSync(directory, { recursive: true, force: true }));
 
   beforeEach(() => {
     log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
@@ -28,14 +42,16 @@ describe('MCP timing interceptor', () => {
       if (debugValue === undefined) delete process.env.DEBUG;
       else process.env.DEBUG = debugValue;
 
-      expect(McpServerModule.register().providers).not.toContainEqual({
+      expect(
+        McpServerModule.register(databasePath).providers,
+      ).not.toContainEqual({
         provide: APP_INTERCEPTOR,
         useClass: McpTimingInterceptor,
       });
     }
 
     process.env.DEBUG = '1';
-    expect(McpServerModule.register().providers).toContainEqual({
+    expect(McpServerModule.register(databasePath).providers).toContainEqual({
       provide: APP_INTERCEPTOR,
       useClass: McpTimingInterceptor,
     });

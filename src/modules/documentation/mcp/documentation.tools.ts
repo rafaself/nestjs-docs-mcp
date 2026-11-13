@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Tool } from '@nestjs/mcp';
-import type { DocumentationReader } from '../application/contracts/documentation-reader.contract.js';
-import { DOCUMENTATION_READER } from '../application/contracts/documentation.tokens.js';
-import { DEFAULT_SEARCH_RESULT_LIMIT } from '../retrieval/search.constants.js';
+import type { DocumentationReader } from '@nestjs-docs/documentation-engine/application/contracts/documentation-reader.contract.js';
+import { DOCUMENTATION_READER } from '@nestjs-docs/documentation-engine/application/contracts/documentation.tokens.js';
+import { DEFAULT_SEARCH_RESULT_LIMIT } from '@nestjs-docs/documentation-engine/retrieval/search.constants.js';
 import {
   fetchDocsInputSchema,
   fetchDocsOutputSchema,
@@ -26,7 +26,7 @@ export class DocumentationTools {
   @Tool({
     name: 'search_docs',
     description:
-      'Searches the NestJS documentation major selected when this server starts. Returns ranked section excerpts, document IDs, and official source URLs.',
+      'Searches the documentation index selected when this server starts. Returns ranked section excerpts, document IDs, and source URLs.',
     inputSchema: searchDocsInputSchema,
     outputSchema: searchDocsOutputSchema,
     annotations: {
@@ -41,10 +41,7 @@ export class DocumentationTools {
       query,
       limit ?? DEFAULT_SEARCH_RESULT_LIMIT,
     );
-    return presentSearchResults(
-      results,
-      this.documentation.documentationVersion,
-    );
+    return presentSearchResults(results, this.documentation.documentation);
   }
 
   @Tool({
@@ -65,8 +62,9 @@ export class DocumentationTools {
       documentId,
       sectionId,
       cursor,
+      documentationId: this.documentation.documentation.id,
       document: this.documentation.fetchDocument(documentId, sectionId, cursor),
-      documentationVersion: this.documentation.documentationVersion,
+      documentationVersion: this.documentation.documentation.version,
     });
   }
 }

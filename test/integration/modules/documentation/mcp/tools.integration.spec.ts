@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NestFactory } from '@nestjs/core';
@@ -6,15 +6,17 @@ import type { INestApplicationContext } from '@nestjs/common';
 import type { Client } from '@modelcontextprotocol/client';
 import { connectMcpClient } from '@nestjs/mcp/testing';
 import { McpServerModule } from '../../../../../src/apps/mcp-server/mcp-server.module.js';
-import { ingestSnapshot } from '../../../../fixtures/ingestion.fixtures.js';
-import { DocumentationIndexWriter } from '../../../../../src/modules/documentation/infrastructure/sqlite/indexing/index-writer.js';
+import { ingestNestJsDocuments } from '../../../../fixtures/ingestion.fixtures.js';
+import { DocumentationIndexWriter } from '@nestjs-docs/documentation-engine/infrastructure/sqlite/indexing/index-writer.js';
 import { loadSearchCorpus } from '../../../../fixtures/search.fixtures.js';
+import { createTestIndexManifest } from '../../../../fixtures/mcp-server-index.js';
 
 describe('documentation MCP tools', () => {
   let directory: string;
   let app: INestApplicationContext;
   let client: Client;
   let documentId = '';
+  const documentationId = 'https://github.com/nestjs/docs.nestjs.com';
 
   beforeAll(async () => {
     directory = await mkdtemp(join(tmpdir(), 'nestjs-docs-mcp-tools-'));
@@ -22,27 +24,39 @@ describe('documentation MCP tools', () => {
     const corpus = await loadSearchCorpus();
     documentId = corpus.documents[0]!.id;
 
-    const index = new DocumentationIndexWriter(databasePath, 12);
-    const longCorpus = ingestSnapshot({
-      version: 12,
-      ref: 'master',
-      revision: corpus.source.revision,
-      documents: [
+    const index = new DocumentationIndexWriter(databasePath, '12');
+    const longCorpus = ingestNestJsDocuments(
+      '12',
+      [
         {
           path: 'content/long.md',
           canonicalUrl: 'https://docs.nestjs.com/long',
           markdown: `# Long page\n\n## Streaming\n\n${'streaming 🌍 '.repeat(2000)}\n\n## Last section\n\nlate-marker`,
         },
       ],
-    });
+      corpus.source.revision,
+    );
     index.indexCorpus({
       ...corpus,
       documents: [...corpus.documents, ...longCorpus.documents],
     });
     index.close();
+    const completeCorpus = {
+      ...corpus,
+      documents: [...corpus.documents, ...longCorpus.documents],
+    };
+    const manifestPath = join(directory, 'manifest.json');
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        createTestIndexManifest(databasePath, completeCorpus, documentationId),
+        null,
+        2,
+      )}\n`,
+    );
 
     app = await NestFactory.createApplicationContext(
-      McpServerModule.register(databasePath),
+      McpServerModule.register(databasePath, manifestPath),
       { logger: false },
     );
     client = await connectMcpClient(app);
@@ -75,10 +89,7 @@ describe('documentation MCP tools', () => {
     expect(tools[1]?.inputSchema).toMatchObject({
       type: 'object',
       properties: {
-        documentId: {
-          type: 'string',
-          pattern: '^nestjs-doc:v(?:11|12):[0-9a-f]{64}$',
-        },
+        documentId: { type: 'string', minLength: 1, maxLength: 512 },
       },
     });
   });
@@ -106,13 +117,14 @@ describe('documentation MCP tools', () => {
     });
     expect(resultText(fetched.content)).toContain('ExecutionContext');
     expect(fetched.structuredContent).toMatchObject({
+      documentationId,
       found: true,
       truncated: false,
       sectionId,
-      documentationVersion: 12,
+      documentationVersion: '12',
     });
     expect(result.structuredContent).toMatchObject({
-      documentationVersion: 12,
+      documentationVersion: '12',
       results: [{ chunkId: sectionId, documentId }],
     });
   });
@@ -188,7 +200,8 @@ describe('documentation MCP tools', () => {
     });
     expect(search.isError).toBeFalsy();
     expect(search.structuredContent).toEqual({
-      documentationVersion: 12,
+      documentationId,
+      documentationVersion: '12',
       results: [],
     });
     const missing = await client.callTool({
@@ -197,6 +210,7 @@ describe('documentation MCP tools', () => {
     });
     expect(missing.isError).toBeFalsy();
     expect(missing.structuredContent).toMatchObject({
+      documentationId,
       found: false,
       sections: [],
       nextCursor: null,
@@ -229,14 +243,18 @@ describe('documentation MCP tools', () => {
     });
   });
 
-  it('rejects document IDs from another configured major', async () => {
+  it('does not resolve document IDs absent from the configured major', async () => {
     const result = await client.callTool({
       name: 'fetch_docs',
       arguments: { documentId: `nestjs-doc:v11:${'0'.repeat(64)}` },
     });
 
-    expect(result.isError).toBe(true);
-    expect(resultText(result.content)).toContain('configured for v12');
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      documentationVersion: '12',
+      found: false,
+      sections: [],
+    });
   });
 
   it.each([
@@ -254,7 +272,7 @@ describe('documentation MCP tools', () => {
     {
       name: 'invalid document ID',
       tool: 'fetch_docs',
-      arguments: { documentId: 'not-a-document-id' },
+      arguments: { documentId: 'x'.repeat(513) },
     },
     {
       name: 'fetch version argument',

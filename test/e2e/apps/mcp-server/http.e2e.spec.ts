@@ -1,7 +1,11 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, connect } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createMcpServerTestIndex } from '../../../fixtures/mcp-server-index.js';
 import {
   Client,
   StreamableHTTPClientTransport,
@@ -17,8 +21,15 @@ const entryPoint = fileURLToPath(
 describe('MCP HTTP server', () => {
   it('serves the documentation MCP over HTTP and shuts down cleanly', async () => {
     const port = await reservePort();
+    const directory = mkdtempSync(join(tmpdir(), 'nestjs-docs-mcp-http-'));
+    const databasePath = join(directory, 'index.sqlite');
+    createMcpServerTestIndex(databasePath);
     const child = spawn(process.execPath, [entryPoint], {
-      env: { ...process.env, PORT: String(port), NESTJS_VERSION: '12' },
+      env: {
+        ...process.env,
+        PORT: String(port),
+        DOCUMENTATION_INDEX_PATH: databasePath,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stderr = '';
@@ -58,6 +69,7 @@ describe('MCP HTTP server', () => {
         child.kill('SIGTERM');
         await withTimeout(closed, 'HTTP server shutdown');
       }
+      rmSync(directory, { recursive: true, force: true });
     }
   }, 20_000);
 });

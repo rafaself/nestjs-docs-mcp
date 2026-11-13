@@ -18,6 +18,6 @@ async function bootstrap(): Promise<void> {
 }
 
 bootstrap().catch((error: unknown) => {
-  console.error('Failed to start NestJS documentation MCP over HTTP:', error);
+  console.error('Failed to start documentation MCP over HTTP:', error);
   process.exitCode = 1;
 });

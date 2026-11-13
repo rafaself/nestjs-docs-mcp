@@ -1,19 +1,19 @@
 import { DynamicModule, Module } from '@nestjs/common';
-import type { NestJsDocumentationVersion } from './domain/documentation-version.js';
-import { DOCUMENTATION_READER } from './application/contracts/documentation.tokens.js';
-import { DocumentationSearchService } from './application/services/documentation-search.service.js';
-import { SQLiteDocumentationModule } from './infrastructure/sqlite/sqlite-documentation.module.js';
+import type { DocumentationIndexRuntimeManifest } from '@nestjs-docs/documentation-engine/domain/documentation-index-manifest.schemas.js';
+import { DOCUMENTATION_READER } from '@nestjs-docs/documentation-engine/application/contracts/documentation.tokens.js';
+import { DocumentationSearchService } from '@nestjs-docs/documentation-engine/application/services/documentation-search.service.js';
+import { SQLiteDocumentationModule } from '@nestjs-docs/documentation-engine/infrastructure/sqlite/sqlite-documentation.module.js';
 
 @Module({})
 export class DocumentationModule {
   static register(
     databasePath: string,
-    documentationVersion: NestJsDocumentationVersion,
+    indexManifest: DocumentationIndexRuntimeManifest,
   ): DynamicModule {
     return {
       module: DocumentationModule,
       imports: [
-        SQLiteDocumentationModule.register(databasePath, documentationVersion),
+        SQLiteDocumentationModule.register(databasePath, indexManifest),
       ],
       providers: [
         DocumentationSearchService,
