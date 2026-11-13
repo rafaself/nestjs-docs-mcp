@@ -2,7 +2,7 @@
 
 A standalone NestJS application using the official [`@nestjs/mcp`](https://docs.nestjs.com/mcp/overview) package.
 
-The server runs locally over [stdio](https://docs.nestjs.com/mcp/transports) and exposes one connectivity tool, `ping`, which takes no arguments and returns `pong`. Documentation ingestion runs as a separate command. Search, documentation MCP tools, and version isolation are not implemented.
+The server runs locally over [stdio](https://docs.nestjs.com/mcp/transports) and exposes one connectivity tool, `ping`, which takes no arguments and returns `pong`. Documentation ingestion and local full-text search run as separate commands. Documentation MCP tools and version isolation are not implemented.
 
 ## Requirements
 
@@ -61,13 +61,27 @@ Chunks stay within sections and pack whole Markdown blocks up to a soft size tar
 
 Downloads have a 30-second timeout and a 4 MiB limit per file, with at most four chapter downloads in flight. Invalid metadata or failed downloads stop ingestion. Output is replaced atomically only after the complete snapshot is processed, preserving a previous corpus on failure. Only the latest source is ingested; each run replaces the previous corpus. The MCP runtime neither imports ingestion code nor downloads or loads this corpus.
 
+## Build and use the local search index
+
+After ingestion, create or replace the SQLite FTS5 index from the generated corpus:
+
+```sh
+npm run search:index
+# Optional corpus and SQLite paths:
+npm run search:index -- --input /tmp/nestjs-documentation.json --database /tmp/nestjs-documentation.sqlite
+```
+
+The default index is `data/documentation.sqlite` (ignored by Git). It indexes each ingested section chunk, including document titles, heading paths, normalized Markdown, and code examples. Search uses SQLite FTS5 ranking and snippets, with title and heading matches weighted above body text. Queries are converted to quoted terms so caller text cannot inject FTS operators; punctuation around identifiers such as `@Injectable()` is handled. Empty queries return no results. Queries are limited to 256 characters and 32 terms, and result limits default to 10 and cap at 50.
+
+The injectable `DocumentationSearchService` is exported by `DocumentationSearchModule` and can be used by a future consumer without starting or importing the MCP server. It returns chunk and document identifiers, title, section canonical URL, source revision, excerpt, and relevance score. The current MCP runtime does not expose documentation search. SQLite comes from Node's built-in `node:sqlite` module, so no database service or production database package is required.
+
 ## Checks
 
 ```sh
 npm run check
 ```
 
-This runs formatting verification, ESLint, strict TypeScript checking (including tests), the production build, and tests. Stdio tests launch the compiled server through an official MCP client, discover and invoke `ping`, and verify shutdown on stdin EOF, SIGINT, and SIGTERM, with protocol messages on stdout and diagnostics on stderr. Ingestion tests use local synthetic documentation fixtures and a stubbed downloader to verify normalization, source metadata, code preservation, chunking, deterministic IDs/hashes, failure handling, and output replacement. Tests use no external services or network listeners. Jest rebuilds the application before each run, including watch mode.
+This runs formatting verification, ESLint, strict TypeScript checking (including tests), the production build, and tests. Stdio tests launch the compiled server through an official MCP client, discover and invoke `ping`, and verify shutdown on stdin EOF, SIGINT, and SIGTERM, with protocol messages on stdout and diagnostics on stderr. Ingestion tests use local synthetic documentation fixtures and a stubbed downloader to verify normalization, source metadata, code preservation, chunking, deterministic IDs/hashes, failure handling, and output replacement. Search tests build an index from local fixtures through the ingestion pipeline, then verify relevance, empty input, exact identifiers, and result bounds through both the service and its standalone Nest module. Tests use no external services or network listeners. Jest rebuilds the application before each run, including watch mode.
 
 Individual commands are `npm run format:check`, `npm run lint`, `npm run typecheck`, `npm test`, and `npm run build`. Use `npm run format` or `npm run lint:fix` to apply formatting or lint fixes; `npm run test:watch` and `npm run test:cov` are also available.
 
@@ -79,7 +93,9 @@ TypeScript is pinned to the latest compatible 6.0 patch line because the current
 - `src/app.module.ts`: root module and MCP server registration.
 - `src/ping.tool.ts`: minimal connectivity tool.
 - `src/ingestion/`: independent downloader, Markdown parser/chunker, corpus writer, and CLI.
+- `src/search/`: independent SQLite FTS5 index, Nest search module/service, and index CLI.
 - `test/ingestion.spec.ts` and `test/fixtures/documentation/`: offline ingestion coverage.
+- `test/search*.spec.ts` and search fixtures: offline search unit and integration coverage.
 - `test/stdio.spec.ts`: stdio client and process lifecycle integration tests.
 
 ## License

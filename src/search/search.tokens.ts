@@ -1,0 +1,1 @@
+export const SEARCH_DATABASE_PATH = Symbol('SEARCH_DATABASE_PATH');

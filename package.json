@@ -14,6 +14,7 @@
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
     "docs:ingest": "npm run build && node dist/ingestion/cli.js",
+    "search:index": "npm run build && node dist/search/index.cli.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "npm run lint -- --fix",
