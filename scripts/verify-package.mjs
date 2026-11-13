@@ -99,6 +99,13 @@ export async function verifyPackage(root = rootDirectory) {
       throw new Error(`NestJS v${version} index hash does not match manifest`);
     }
 
+    const corpusPath = resolve(dataDirectory, `documentation-v${version}.json`);
+    await requireFile(corpusPath);
+    if ((await hashFile(corpusPath)) !== entry.corpusSha256) {
+      throw new Error(`NestJS v${version} corpus hash does not match manifest`);
+    }
+    const corpus = JSON.parse(await readFile(corpusPath, 'utf8'));
+
     const database = new DatabaseSync(databasePath, { readOnly: true });
     try {
       const summary = validateIndexIntegrity(database, version);
@@ -125,34 +132,19 @@ export async function verifyPackage(root = rootDirectory) {
         );
       }
 
-      // Corpus files accompany development and index bundles, but are not part
-      // of the published npm package. Verify their hashes and exact rows when present.
-      const corpusPath = resolve(
-        dataDirectory,
-        `documentation-v${version}.json`,
-      );
-      if (await fileExists(corpusPath)) {
-        if ((await hashFile(corpusPath)) !== entry.corpusSha256) {
-          throw new Error(
-            `NestJS v${version} corpus hash does not match manifest`,
-          );
-        }
-        const corpus = JSON.parse(await readFile(corpusPath, 'utf8'));
-        validateCorpusIndex(version, corpus, database);
-        if (
-          corpus.source.revision !== entry.revision ||
-          !corpus.documents.every(
-            (document) =>
-              entry.sourceContentHashes[document.id] ===
-                document.source.contentHash &&
-              entry.normalizedContentHashes[document.id] ===
-                document.contentHash,
-          )
-        ) {
-          throw new Error(
-            `NestJS v${version} corpus contents do not match its manifest`,
-          );
-        }
+      validateCorpusIndex(version, corpus, database);
+      if (
+        corpus.source.revision !== entry.revision ||
+        !corpus.documents.every(
+          (document) =>
+            entry.sourceContentHashes[document.id] ===
+              document.source.contentHash &&
+            entry.normalizedContentHashes[document.id] === document.contentHash,
+        )
+      ) {
+        throw new Error(
+          `NestJS v${version} corpus contents do not match its manifest`,
+        );
       }
     } finally {
       database.close();
@@ -164,23 +156,13 @@ export async function verifyPackage(root = rootDirectory) {
   }
 }
 
-async function fileExists(path) {
-  try {
-    await access(path);
-    return true;
-  } catch (error) {
-    if (error?.code === 'ENOENT') return false;
-    throw error;
-  }
-}
-
 async function requireFile(path) {
   try {
     await access(path);
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error;
     throw new Error(
-      `Required package asset is missing: ${path}. Extract the latest documentation index release into data/, or generate a new bundle with scripts/synchronize-documentation-indexes.mjs before packing.`,
+      `Required package input is missing: ${path}. Extract a complete documentation index bundle into data/, or generate one with scripts/synchronize-documentation-indexes.mjs before packing.`,
       { cause: error },
     );
   }

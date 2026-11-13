@@ -16,7 +16,7 @@ npm install --global nestjs-docs-mcp
 nestjs-docs-mcp
 ```
 
-This installation command will be usable after the package is manually published to npm. Set `NESTJS_VERSION=11` to select v11; the default is v12. The npm package includes the SQLite indexes for both supported majors. This repository does not publish the package automatically.
+This installation command will be usable after the package is manually published to npm. Set `NESTJS_VERSION=11` to select v11; the default is v12. Each npm package version is a fixed snapshot of the server and both SQLite indexes. The npm version identifies the package release; `data/manifest.json` records the upstream source ref and commit for each documentation major. A later GitHub index release does not change an already installed package, and the server never downloads updates at startup. This repository does not publish the package automatically.
 
 ## Local development
 
@@ -29,7 +29,7 @@ node dist/main.js
 
 The server reads its index files beside the installed package, regardless of the working directory. A fresh checkout needs indexes before the server or `npm pack` can run. After the index-update workflow has published its first bundle, download `documentation-indexes.tar.gz` from the latest [`docs-index-*` GitHub prerelease](https://github.com/rafaself/nestjs-docs-mcp/releases), then extract it into the repository's `data/` directory.
 
-`npm pack` builds the application, verifies both indexes against the manifest, runs SQLite and FTS5 integrity checks, and checks indexed version metadata. It then installs the generated tarball into a temporary production-only project and exercises both NestJS majors through a real stdio MCP client. The check confirms that searches and fetches work from the packaged indexes, stdout contains protocol messages, and shutdown is clean. It fails if a required index is missing or invalid. The package contains the compiled server, both SQLite indexes, their source manifest, README, and license notices; it excludes tests and source documentation.
+`npm pack` builds the application and requires a complete index bundle in `data/`: both corpus JSON files, both SQLite indexes, and their matching manifest. It validates corpus hashes and exact corpus-to-index row parity, SQLite and FTS5 integrity, index hashes, and version/revision metadata before packing. The corpus files are used for this check but excluded from the npm tarball. The packed-package check then installs the generated tarball into a temporary production-only project and exercises both NestJS majors through a real stdio MCP client. It confirms that searches and fetches work from the packaged indexes, stdout contains protocol messages, and shutdown is clean. The package contains the compiled server, both SQLite indexes, their source manifest, README, and license notices; it excludes tests and source documentation.
 
 To rebuild indexes locally from the official sources instead of downloading the latest release bundle:
 
@@ -50,7 +50,9 @@ bundle_dir="$(mktemp -d)"
 trap 'rm -r "$bundle_dir"' EXIT
 node scripts/synchronize-documentation-indexes.mjs --output "$bundle_dir/indexes"
 mkdir -p data
-cp "$bundle_dir/indexes/documentation-v11.sqlite" \
+cp "$bundle_dir/indexes/documentation-v11.json" \
+  "$bundle_dir/indexes/documentation-v11.sqlite" \
+  "$bundle_dir/indexes/documentation-v12.json" \
   "$bundle_dir/indexes/documentation-v12.sqlite" \
   "$bundle_dir/indexes/manifest.json" data/
 ```
@@ -96,7 +98,9 @@ The npm executable is `nestjs-docs-mcp`; it launches the same compiled stdio ent
 
 ## Package maintenance
 
-The `prepack` check builds the package, validates the indexes, and tests the local tarball from a production-only install. It never publishes to npm. Publishing remains a separate manual action, and documentation index updates are distributed through GitHub prerelease assets, not npm releases.
+The npm package is a release-time snapshot. For a data-only refresh, choose the newest successful `docs-index-*` prerelease, extract its complete archive into a clean staging directory, then promote its two corpus files, two SQLite files, and `manifest.json` together into `data/`. The two majors are synchronized independently: a bundle may contain a new v12 index and an unchanged v11 index, or vice versa. That is expected; each manifest entry ties one major's corpus and database to its own upstream commit and hashes. Never combine files from different bundles or replace a database without its matching corpus and manifest.
+
+Keep both corpus JSON files in `data/` while preparing the package. `npm pack` runs `prepack`, which checks each corpus against its index and manifest, then tests the actual tarball from a production-only install for both majors. The `files` list omits corpora from the published tarball, but the packaged SQLite files and manifest remain a validated pair. The package version is independent of the NestJS documentation major or source commit; a docs-only npm release would normally use the next package patch version. Review the generated `.tgz`, then publish that exact tarball with `npm publish ./nestjs-docs-mcp-<package-version>.tgz`. Index generation and GitHub prerelease creation do not publish npm packages; npm publication remains a separate maintainer action.
 
 ## Third-party documentation content
 
@@ -106,7 +110,7 @@ The bundled indexes contain normalized Markdown derived from the official NestJS
 
 Set `NESTJS_VERSION=11` or `NESTJS_VERSION=12` to choose the documentation major. The default is `12`, the latest supported major in the [official migration guide](https://docs.nestjs.com/migration-guide). Any other value fails when the application or an ingestion/index command starts. The MCP tools do not accept a version argument; each server process keeps the configured major for its lifetime.
 
-The official [v12 documentation source](https://github.com/nestjs/docs.nestjs.com/tree/master) is the current `master` branch. The official site links its v11 archive through [See Version 11](https://docs.nestjs.com/v11); its Markdown source is the repository's [`11.0.0` branch](https://github.com/nestjs/docs.nestjs.com/tree/11.0.0). That branch's latest commit observed during implementation was `7b1c9394992ad4d8e8d17b30604e02003ee8f98f` (January 17, 2025). Automation checks both branch heads and records each resolved commit separately from the documentation major. Historical v11 material remains limited to that archived branch and may not include later edits from other documentation sources.
+The official [v12 documentation source](https://github.com/nestjs/docs.nestjs.com/tree/master) is the `master` branch. The official site links its v11 archive through [See Version 11](https://docs.nestjs.com/v11); its Markdown source is the repository's [`11.0.0` branch](https://github.com/nestjs/docs.nestjs.com/tree/11.0.0). The branch still exists, but its [official commit history](https://github.com/nestjs/docs.nestjs.com/commits/11.0.0) currently ends at `7b1c9394992ad4d8e8d17b30604e02003ee8f98f`, dated January 17, 2025. Treat v11 as effectively frozen: the update workflow will index a new commit if the branch moves, but polling does not guarantee that upstream maintains it. The manifest records the resolved commit for each major independently.
 
 ## Ingest documentation
 
@@ -157,11 +161,17 @@ The stdio MCP server reads the index matching `NESTJS_VERSION` when it starts. `
 
 Run `npm run search:evaluate` to compare the current ranker with a fixed OR-query baseline across 25 target-labeled queries for each bundled major. The cases cover API identifiers, decorators, multiword concepts, natural-language questions, and overlapping concepts. It reports top-1/3/5 accuracy and MRR@10 for exact AND-first matching, phrase-first fallback, quoted phrase weighting, camel-case query expansion, and several BM25 title/heading weights. Baseline results for v11 revision `7b1c9394992ad4d8e8d17b30604e02003ee8f98f` are 16/25 top-1, 22/25 top-3, and 0.751 MRR@10; v12 revision `3e764dea70dbeb3cd193a037d6017c4b41c27525` scores 16/25, 24/25, and 0.780. Adding a quoted phrase clause moves “request scoped providers” from rank 3 to rank 1 on v11, leaves v12 unchanged, and has no target-rank regressions in this sample. The broader ranker changes tested did not perform as well.
 
-The GitHub Actions workflow checks the official `11.0.0` and `master` refs weekly and on manual dispatch. It resolves each ref before downloading Markdown, reuses an unchanged major's existing corpus and index, reindexes changed documents, and removes deleted documents when a source revision advances. Source revisions and document content hashes are recorded in the corpus and release manifest. The workflow verifies corpus hashes, SQLite and FTS5 integrity, and exact corpus-to-index row parity before packaging.
+The GitHub Actions workflow checks the official `11.0.0` and `master` refs weekly and on manual dispatch. It resolves each ref before downloading Markdown, reuses an unchanged major's existing corpus and index, reindexes a changed major independently, and removes deleted documents when a source revision advances. Source revisions and document content hashes are recorded in each corpus and its release manifest entry. The workflow validates both majors together, including corpus hashes, SQLite and FTS5 integrity, and exact corpus-to-index row parity, before packaging.
 
-Only after both majors validate does the workflow publish a **prerelease** with a unique tag beginning `docs-index-` and a single `documentation-indexes.tar.gz` asset. Each update uses a new release; the workflow never replaces the previous published bundle, so a failed build or upload leaves it available. This uses GitHub Releases as the index distribution channel; it does not publish npm packages. The MCP server never synchronizes or downloads documentation during tool requests.
+Only after both majors validate does the workflow publish a **prerelease** with a unique tag beginning `docs-index-` and a single `documentation-indexes.tar.gz` asset. Each archive is a complete set: the v11 corpus and database, the v12 corpus and database, and their manifest. Each update uses a new release; the workflow never replaces the previous published bundle, so a failed build or upload leaves it available. This uses GitHub Releases as the generated-index distribution channel; it does not publish npm packages. The MCP server never synchronizes or downloads documentation during tool requests.
 
-To install the newest bundle locally, use the latest `docs-index-*` prerelease from the [GitHub Releases page](https://github.com/rafaself/nestjs-docs-mcp/releases), download `documentation-indexes.tar.gz` into `data/`, and extract it there. The archive includes separate v11 and v12 corpus and SQLite files plus a manifest. Set `NESTJS_VERSION` before starting the MCP process to choose which local index it opens.
+These are three separate freshness points:
+
+- **Upstream documentation:** the current commit at each configured source ref (`11.0.0` for v11 and `master` for v12). The weekly job samples these refs; it does not promise an update schedule from upstream or capture edits that are not committed there.
+- **Latest generated bundle:** the newest successful `docs-index-*` prerelease on the [GitHub Releases page](https://github.com/rafaself/nestjs-docs-mcp/releases). Its manifest records the exact upstream commit and content/index hashes for each major. It advances only when a validated bundle is published, and a changed major can be paired with the unchanged index for the other major.
+- **Installed npm package:** the fixed index snapshot shipped with that npm package version. A later GitHub prerelease does not update existing installations. Users receive newer bundled documentation only after maintainers promote a validated bundle into a new npm package version and publish that release.
+
+For local development, download one complete `documentation-indexes.tar.gz` from the latest `docs-index-*` prerelease and extract its five files into the checkout's `data/` directory as a set. Do not copy an individual database or manifest from a different release. Set `NESTJS_VERSION` before starting the MCP process to choose which local index it opens.
 
 When the ingestion or SQLite index format changes, increment `INDEX_PIPELINE_VERSION` in `scripts/synchronize-documentation-indexes.mjs` to force a rebuild from the official sources.
 

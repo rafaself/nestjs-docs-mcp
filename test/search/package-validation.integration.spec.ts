@@ -135,7 +135,7 @@ describe('package index verification', () => {
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-  it('accepts valid indexes with or without optional corpus files without changing them', () => {
+  it('accepts complete indexes without changing them and requires their corpora for packing', () => {
     const service = new DocumentationSearchService(indexPath(11), 11);
     try {
       const before = sha256(readFileSync(indexPath(11)));
@@ -144,7 +144,9 @@ describe('package index verification', () => {
       expect(service.search('searchable')).toHaveLength(1);
       unlinkSync(corpusPath(11));
       unlinkSync(corpusPath(12));
-      expect(verify()).toMatchObject({ status: 0 });
+      const result = verify();
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('Required package input is missing:');
     } finally {
       service.onModuleDestroy();
     }
@@ -203,8 +205,7 @@ describe('package index verification', () => {
     );
   });
 
-  it('rejects manifest document IDs missing from the index even without a corpus', () => {
-    unlinkSync(corpusPath(11));
+  it('rejects manifest document IDs missing from the index', () => {
     const entry = manifest.versions['11']!;
     const id = Object.keys(entry.sourceContentHashes)[0]!;
     delete entry.sourceContentHashes[id];

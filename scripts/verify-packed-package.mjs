@@ -206,6 +206,12 @@ async function main() {
     ]) {
       assert.ok(files.has(path), `the npm tarball must include ${path}`);
     }
+    for (const version of versions) {
+      assert.ok(
+        !files.has(`data/documentation-v${version}.json`),
+        'the npm tarball should omit corpus files after validating them during prepack',
+      );
+    }
     const tarballPath = resolve(packDirectory, packed[0].filename);
     await writeFile(
       join(project, 'package.json'),
