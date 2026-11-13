@@ -1,8 +1,12 @@
 {
   "name": "nestjs-docs-mcp",
   "version": "0.0.1",
-  "description": "A local stdio and HTTP MCP server for NestJS v11 and v12 documentation.",
+  "description": "A local stdio and HTTP MCP server for versioned documentation indexes.",
   "type": "module",
+  "workspaces": [
+    "apps/docs-indexer",
+    "packages/documentation-engine"
+  ],
   "bin": {
     "nestjs-docs-mcp": "./dist/apps/mcp-server/bootstrap/stdio.js",
     "nestjs-docs-mcp-http": "./dist/apps/mcp-server/bootstrap/http.js"
@@ -27,7 +31,9 @@
   "files": [
     "dist/**",
     "data/documentation-v11.sqlite",
+    "data/documentation-v11.manifest.json",
     "data/documentation-v12.sqlite",
+    "data/documentation-v12.manifest.json",
     "data/manifest.json",
     "README.md",
     "LICENSE",
@@ -35,18 +41,35 @@
     "licenses/nestjs-docs-v11-LICENSE",
     "licenses/nestjs-docs-v12-LICENSE"
   ],
+  "dependencies": {
+    "@nestjs-docs/documentation-engine": "0.1.0",
+    "@nestjs/common": "^12.5.0",
+    "@nestjs/core": "^12.5.0",
+    "@nestjs/mcp": "^0.0.4",
+    "@nestjs/platform-express": "^12.5.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "^4.6.7"
+  },
+  "bundleDependencies": [
+    "@nestjs-docs/documentation-engine"
+  ],
   "engines": {
     "node": "^24.15.0 || >=26.0.0"
   },
   "scripts": {
-    "build": "nest build",
+    "build:engine": "npm run build --workspace @nestjs-docs/documentation-engine",
+    "build:indexer": "npm run build --workspace @nestjs-docs/docs-indexer",
+    "build:server": "nest build",
+    "build": "npm run build:engine && npm run build:indexer && npm run build:server",
     "prepack": "npm run build && node scripts/ci/verify-package.mjs && node scripts/ci/verify-packed-package.mjs",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/apps/mcp-server/bootstrap/http.js",
     "start:stdio": "node dist/apps/mcp-server/bootstrap/stdio.js",
-    "docs:ingest": "npm run build && node dist/apps/docs-indexer/cli.js ingest",
-    "search:index": "npm run build && node dist/apps/docs-indexer/cli.js index",
+    "docs:build": "npm run build && node apps/docs-indexer/dist/cli.js build",
+    "docs:ingest": "npm run build && node apps/docs-indexer/dist/cli.js ingest",
+    "search:index": "npm run build && node apps/docs-indexer/dist/cli.js index",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "npm run lint -- --fix",
@@ -57,18 +80,6 @@
     "test:cov": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --runInBand",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
     "search:evaluate": "npm run build && node scripts/evaluation/evaluate-search.mjs"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/server": "^2.4.0",
-    "@nestjs/common": "^12.5.0",
-    "@nestjs/core": "^12.5.0",
-    "@nestjs/mcp": "^0.0.4",
-    "@nestjs/platform-express": "^12.5.0",
-    "json5": "^2.2.3",
-    "marked": "^18.2.0",
-    "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2",
-    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

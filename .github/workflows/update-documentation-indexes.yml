@@ -33,6 +33,7 @@ jobs:
       - name: Install and build
         run: |
           npm ci
+          npm run check
           npm run build
 
       - name: Download the previous published index bundle
@@ -55,13 +56,21 @@ jobs:
             --pattern documentation-indexes.tar.gz \
             --dir "$work_dir/previous"
           actual_assets="$(tar -tzf "$work_dir/previous/documentation-indexes.tar.gz" | sort)"
-          expected_assets="$(printf '%s\n' \
+          legacy_assets="$(printf '%s\n' \
             documentation-v11.json \
             documentation-v11.sqlite \
             documentation-v12.json \
             documentation-v12.sqlite \
             manifest.json | sort)"
-          if [[ "$actual_assets" != "$expected_assets" ]]; then
+          expected_assets="$(printf '%s\n' \
+            documentation-v11.json \
+            documentation-v11.sqlite \
+            documentation-v11.manifest.json \
+            documentation-v12.json \
+            documentation-v12.sqlite \
+            documentation-v12.manifest.json \
+            manifest.json | sort)"
+          if [[ "$actual_assets" != "$legacy_assets" && "$actual_assets" != "$expected_assets" ]]; then
             echo "Previous documentation index archive has an unexpected file list" >&2
             exit 1
           fi
@@ -90,6 +99,21 @@ jobs:
           changed="$(node --input-type=module -e 'import { readFile } from "node:fs/promises"; const result = JSON.parse(await readFile(process.argv[1], "utf8")); process.stdout.write(String(result.changed));' "$WORK_DIR/result.json")"
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
 
+      - name: Verify the publishable npm package from the validated bundle
+        env:
+          WORK_DIR: ${{ steps.previous.outputs.work_dir }}
+        run: |
+          set -euo pipefail
+          mkdir -p data "$WORK_DIR/package"
+          cp "$WORK_DIR/next/documentation-v11.json" \
+            "$WORK_DIR/next/documentation-v11.sqlite" \
+            "$WORK_DIR/next/documentation-v11.manifest.json" \
+            "$WORK_DIR/next/documentation-v12.json" \
+            "$WORK_DIR/next/documentation-v12.sqlite" \
+            "$WORK_DIR/next/documentation-v12.manifest.json" \
+            "$WORK_DIR/next/manifest.json" data/
+          npm pack --pack-destination "$WORK_DIR/package"
+
       - name: Create and verify index bundle
         if: steps.sync.outputs.changed == 'true'
         env:
@@ -98,8 +122,8 @@ jobs:
           set -euo pipefail
           tar -C "$WORK_DIR/next" -czf "$WORK_DIR/documentation-indexes.tar.gz" \
             manifest.json \
-            documentation-v11.json documentation-v11.sqlite \
-            documentation-v12.json documentation-v12.sqlite
+            documentation-v11.json documentation-v11.sqlite documentation-v11.manifest.json \
+            documentation-v12.json documentation-v12.sqlite documentation-v12.manifest.json
           tar -tzf "$WORK_DIR/documentation-indexes.tar.gz" >/dev/null
 
       - name: Publish validated GitHub release asset

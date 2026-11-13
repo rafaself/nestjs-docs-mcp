@@ -1,8 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { DocumentationSearchService } from '../../dist/modules/documentation/application/services/documentation-search.service.js';
-import { SQLiteDocumentationStore } from '../../dist/modules/documentation/infrastructure/sqlite/sqlite-documentation-store.js';
+import { DocumentationSearchService } from '@nestjs-docs/documentation-engine/application/services/documentation-search.service.js';
+import { SQLiteDocumentationStore } from '@nestjs-docs/documentation-engine/infrastructure/sqlite/sqlite-documentation-store.js';
 
 const LIMIT = 10;
 const weights = {

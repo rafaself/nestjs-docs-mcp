@@ -3,11 +3,11 @@ import { access, readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { SUPPORTED_DOCUMENTATION_VERSIONS } from '../../dist/modules/documentation/domain/documentation-version.js';
+import { SUPPORTED_DOCUMENTATION_VERSIONS } from '../../apps/docs-indexer/dist/integrations/nestjs/version/documentation-version.js';
 import {
   DOCUMENTATION_SOURCES,
   REPOSITORY,
-} from '../../dist/modules/documentation/infrastructure/github/documentation-source.js';
+} from '../../apps/docs-indexer/dist/integrations/nestjs/github/documentation-source.js';
 import {
   PACKAGE_DESCRIPTION,
   PACKAGE_NAME,
@@ -17,7 +17,8 @@ import {
 import {
   validateCorpusIndex,
   validateIndexIntegrity,
-} from '../../dist/modules/documentation/infrastructure/sqlite/indexing/index-integrity.js';
+} from '@nestjs-docs/documentation-engine/infrastructure/sqlite/indexing/index-integrity.js';
+import { DocumentationIndexRuntimeManifestSchema } from '@nestjs-docs/documentation-engine/domain/documentation-index-manifest.schemas.js';
 
 const rootDirectory = fileURLToPath(new URL('../../', import.meta.url));
 export async function verifyPackage(root = rootDirectory) {
@@ -44,6 +45,9 @@ export async function verifyPackage(root = rootDirectory) {
     ...SUPPORTED_DOCUMENTATION_VERSIONS.map(
       (version) => `data/documentation-v${version}.sqlite`,
     ),
+    ...SUPPORTED_DOCUMENTATION_VERSIONS.map(
+      (version) => `data/documentation-v${version}.manifest.json`,
+    ),
     'data/manifest.json',
     'README.md',
     'LICENSE',
@@ -64,6 +68,14 @@ export async function verifyPackage(root = rootDirectory) {
   ]);
   if (
     packageMetadata.private === true ||
+    packageMetadata.workspaces?.includes('apps/docs-indexer') !== true ||
+    packageMetadata.workspaces?.includes('packages/documentation-engine') !==
+      true ||
+    packageMetadata.dependencies?.['@nestjs-docs/documentation-engine'] !==
+      '0.1.0' ||
+    !packageMetadata.bundleDependencies?.includes(
+      '@nestjs-docs/documentation-engine',
+    ) ||
     packageMetadata.bin?.['nestjs-docs-mcp'] !==
       './dist/apps/mcp-server/bootstrap/stdio.js' ||
     packageMetadata.bin?.['nestjs-docs-mcp-http'] !==
@@ -84,7 +96,7 @@ export async function verifyPackage(root = rootDirectory) {
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
   if (
     manifest.formatVersion !== 1 ||
-    manifest.indexPipelineVersion !== 1 ||
+    manifest.indexPipelineVersion !== 2 ||
     manifest.repository !== REPOSITORY ||
     !sameValues(
       Object.keys(manifest.versions ?? {}).sort(),
@@ -106,7 +118,12 @@ export async function verifyPackage(root = rootDirectory) {
       dataDirectory,
       `documentation-v${version}.sqlite`,
     );
+    const runtimeManifestPath = resolve(
+      dataDirectory,
+      `documentation-v${version}.manifest.json`,
+    );
     await requireFile(databasePath);
+    await requireFile(runtimeManifestPath);
     await requireFile(licensePath);
     const license = await readFile(licensePath, 'utf8');
     if (
@@ -130,6 +147,25 @@ export async function verifyPackage(root = rootDirectory) {
     }
     if ((await hashFile(databasePath)) !== entry.indexSha256) {
       throw new Error(`NestJS v${version} index hash does not match manifest`);
+    }
+    const runtimeManifest = DocumentationIndexRuntimeManifestSchema.parse(
+      JSON.parse(await readFile(runtimeManifestPath, 'utf8')),
+    );
+    if (
+      runtimeManifest.documentation.id !== REPOSITORY ||
+      runtimeManifest.documentation.version !== key ||
+      runtimeManifest.source.kind !== 'git' ||
+      runtimeManifest.source.repository !== REPOSITORY ||
+      runtimeManifest.source.ref !== entry.ref ||
+      runtimeManifest.source.revision !== entry.revision ||
+      runtimeManifest.index.file !== `documentation-v${version}.sqlite` ||
+      runtimeManifest.index.sha256 !== entry.indexSha256 ||
+      runtimeManifest.index.documentationVersion !== key ||
+      runtimeManifest.index.sourceRevision !== entry.revision ||
+      runtimeManifest.index.documentCount !== entry.documentCount ||
+      runtimeManifest.index.chunkCount !== entry.chunkCount
+    ) {
+      throw new Error(`NestJS v${version} runtime manifest is inconsistent`);
     }
 
     const corpusPath = resolve(dataDirectory, `documentation-v${version}.json`);

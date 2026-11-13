@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src/modules/documentation",
+    "outDir": "./dist",
+    "declaration": true,
+    "types": ["node"]
+  },
+  "include": ["src/modules/documentation/**/*.ts"],
+  "exclude": ["**/*.spec.ts"]
+}

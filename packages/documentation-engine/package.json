@@ -1,0 +1,26 @@
+{
+  "name": "@nestjs-docs/documentation-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reusable documentation discovery, parsing, indexing, and retrieval components.",
+  "type": "module",
+  "exports": {
+    "./domain/*": "./dist/domain/*",
+    "./application/*": "./dist/application/*",
+    "./infrastructure/*": "./dist/infrastructure/*",
+    "./retrieval/*": "./dist/retrieval/*"
+  },
+  "files": [
+    "dist/**"
+  ],
+  "dependencies": {
+    "@mdx-js/mdx": "^3.1.1",
+    "@nestjs/common": "^12.5.0",
+    "remark-gfm": "^4.0.1",
+    "rxjs": "^7.8.2",
+    "zod": "^4.6.7"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  }
+}

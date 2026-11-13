@@ -8,7 +8,7 @@ import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const versions = [11, 12];
+const versions = ['11', '12'];
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -53,12 +53,25 @@ async function withTimeout(promise, label, milliseconds = 30_000) {
 
 async function verifyVersion(project, version) {
   const binary = join(project, 'node_modules', '.bin', 'nestjs-docs-mcp');
+  const installedData = join(
+    project,
+    'node_modules',
+    'nestjs-docs-mcp',
+    'data',
+  );
+  const indexPath = join(installedData, `documentation-v${version}.sqlite`);
+  const indexManifestPath = join(
+    installedData,
+    `documentation-v${version}.manifest.json`,
+  );
+  const indexManifest = JSON.parse(await readFile(indexManifestPath, 'utf8'));
   const transport = new StdioClientTransport({
     command: binary,
     cwd: project,
     env: {
       PATH: process.env.PATH ?? '',
-      NESTJS_VERSION: String(version),
+      DOCUMENTATION_INDEX_PATH: indexPath,
+      DOCUMENTATION_INDEX_MANIFEST_PATH: indexManifestPath,
       ...(process.platform === 'win32' && process.env.SystemRoot
         ? { SystemRoot: process.env.SystemRoot }
         : {}),
@@ -101,6 +114,7 @@ async function verifyVersion(project, version) {
     );
     assert.ok(!search.isError, 'search_docs should succeed');
     const searchData = search.structuredContent;
+    assert.equal(searchData.documentationId, indexManifest.documentation.id);
     assert.equal(searchData.documentationVersion, version);
     assert.ok(
       searchData.results.length > 0,
@@ -110,7 +124,7 @@ async function verifyVersion(project, version) {
     assert.match(hit.documentId, new RegExp(`^nestjs-doc:v${version}:`));
     assert.match(hit.sourceRevision, /^[a-f0-9]{40}$/u);
     assert.match(hit.canonicalUrl, /^https:\/\/docs\.nestjs\.com\//u);
-    if (version === 11)
+    if (version === '11')
       assert.match(hit.canonicalUrl, /^https:\/\/docs\.nestjs\.com\/v11\//u);
     else assert.doesNotMatch(hit.canonicalUrl, /\/v11(?:\/|#|$)/u);
 
@@ -123,6 +137,7 @@ async function verifyVersion(project, version) {
     );
     assert.ok(!fetched.isError, 'fetch_docs should succeed');
     const document = fetched.structuredContent;
+    assert.equal(document.documentationId, indexManifest.documentation.id);
     assert.equal(document.documentationVersion, version);
     assert.equal(document.found, true);
     assert.equal(document.sourceRevision, hit.sourceRevision);
@@ -179,6 +194,10 @@ async function main() {
   const temporaryDirectory = await mkdtemp(
     join(tmpdir(), 'nestjs-docs-packed-package-'),
   );
+  const npmEnvironment = {
+    ...withoutNpmDryRun(process.env),
+    npm_config_cache: join(temporaryDirectory, 'npm-cache'),
+  };
   try {
     const packDirectory = join(temporaryDirectory, 'packed');
     const project = join(temporaryDirectory, 'isolated-project');
@@ -194,15 +213,26 @@ async function main() {
           '--pack-destination',
           packDirectory,
         ],
-        { env: withoutNpmDryRun(process.env) },
+        { env: npmEnvironment },
       ),
     );
     assert.equal(packed.length, 1, 'npm pack should produce one tarball');
     const files = new Set(packed[0].files.map((file) => file.path));
     for (const path of [
       'data/documentation-v11.sqlite',
+      'data/documentation-v11.manifest.json',
       'data/documentation-v12.sqlite',
+      'data/documentation-v12.manifest.json',
       'data/manifest.json',
+      'README.md',
+      'LICENSE',
+      'THIRD-PARTY-NOTICES.md',
+      'licenses/nestjs-docs-v11-LICENSE',
+      'licenses/nestjs-docs-v12-LICENSE',
+      'dist/apps/mcp-server/bootstrap/stdio.js',
+      'dist/apps/mcp-server/bootstrap/http.js',
+      'node_modules/@nestjs-docs/documentation-engine/package.json',
+      'node_modules/@nestjs-docs/documentation-engine/dist/domain/documentation.schemas.js',
     ]) {
       assert.ok(files.has(path), `the npm tarball must include ${path}`);
     }
@@ -210,6 +240,14 @@ async function main() {
       assert.ok(
         !files.has(`data/documentation-v${version}.json`),
         'the npm tarball should omit corpus files after validating them during prepack',
+      );
+    }
+    for (const path of files) {
+      assert.ok(
+        !path.startsWith('apps/docs-indexer/') &&
+          !path.startsWith('packages/documentation-engine/') &&
+          !path.startsWith('test/'),
+        `the npm tarball should not expose workspace sources: ${path}`,
       );
     }
     const tarballPath = resolve(packDirectory, packed[0].filename);
@@ -232,10 +270,26 @@ async function main() {
         '--package-lock=false',
         tarballPath,
       ],
-      { cwd: project, env: withoutNpmDryRun(process.env) },
+      { cwd: project, env: npmEnvironment },
     );
 
     const installedPackage = join(project, 'node_modules', 'nestjs-docs-mcp');
+    const installedEngine = join(
+      installedPackage,
+      'node_modules',
+      '@nestjs-docs',
+      'documentation-engine',
+    );
+    await readFile(join(installedEngine, 'package.json'));
+    await readFile(
+      join(
+        installedEngine,
+        'dist',
+        'infrastructure',
+        'sqlite',
+        'index-schema.js',
+      ),
+    );
     for (const version of versions) {
       const index = join(
         installedPackage,
@@ -243,11 +297,19 @@ async function main() {
         `documentation-v${version}.sqlite`,
       );
       await readFile(index);
+      await readFile(
+        join(
+          installedPackage,
+          'data',
+          `documentation-v${version}.manifest.json`,
+        ),
+      );
     }
     for (const developmentOnlyPackage of [
       'typescript',
       'jest',
       '@nestjs/cli',
+      '@modelcontextprotocol/client',
     ]) {
       try {
         await readFile(

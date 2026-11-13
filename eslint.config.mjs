@@ -4,7 +4,15 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default [
-  { ignores: ['dist/**', 'coverage/**', 'node_modules/**'] },
+  {
+    ignores: [
+      'dist/**',
+      'coverage/**',
+      'node_modules/**',
+      'apps/docs-indexer/dist/**',
+      'packages/documentation-engine/dist/**',
+    ],
+  },
   js.configs.recommended,
   {
     files: ['**/*.{cjs,mjs}'],

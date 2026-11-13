@@ -1,0 +1,23 @@
+{
+  "name": "@nestjs-docs/docs-indexer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline-capable CLI for building documentation corpora and indexes.",
+  "type": "module",
+  "exports": {
+    "./*": "./dist/*"
+  },
+  "files": [
+    "dist/**"
+  ],
+  "dependencies": {
+    "@nestjs-docs/documentation-engine": "0.1.0",
+    "json5": "^2.2.3"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "docs:build": "node dist/cli.js build",
+    "docs:ingest": "node dist/cli.js ingest",
+    "search:index": "node dist/cli.js index"
+  }
+}

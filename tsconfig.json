@@ -7,6 +7,12 @@
     "types": ["node", "jest"],
     "outDir": "./dist",
     "rootDir": ".",
+    "paths": {
+      "@nestjs-docs/documentation-engine/*": [
+        "./packages/documentation-engine/src/modules/documentation/*"
+      ],
+      "@nestjs-docs/docs-indexer/*": ["./apps/docs-indexer/src/*"]
+    },
     "sourceMap": true,
     "removeComments": true,
     "experimentalDecorators": true,
@@ -18,6 +24,11 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "include": [
+    "src/**/*.ts",
+    "apps/docs-indexer/src/**/*.ts",
+    "packages/documentation-engine/src/**/*.ts",
+    "test/**/*.ts"
+  ],
   "exclude": ["node_modules", "dist", "coverage"]
 }
