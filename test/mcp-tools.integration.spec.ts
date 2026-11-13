@@ -181,6 +181,54 @@ describe('documentation MCP tools', () => {
     expect(wrong.isError).toBe(true);
   });
 
+  it('returns structured empty results for missing queries and documents', async () => {
+    const search = await client.callTool({
+      name: 'search_docs',
+      arguments: { query: 'termnotpresentanywhere' },
+    });
+    expect(search.isError).toBeFalsy();
+    expect(search.structuredContent).toEqual({
+      documentationVersion: 12,
+      results: [],
+    });
+    const missing = await client.callTool({
+      name: 'fetch_docs',
+      arguments: { documentId: `nestjs-doc:v12:${'0'.repeat(64)}` },
+    });
+    expect(missing.isError).toBeFalsy();
+    expect(missing.structuredContent).toMatchObject({
+      found: false,
+      sections: [],
+      nextCursor: null,
+      truncated: false,
+    });
+  });
+
+  it('rejects a malformed cursor and returns no section for an unrelated section ID', async () => {
+    const malformed = await client.callTool({
+      name: 'fetch_docs',
+      arguments: { documentId, cursor: 'invalid' },
+    });
+    expect(malformed.isError).toBe(true);
+    expect(resultText(malformed.content)).toContain('Input validation error');
+    const search = await client.callTool({
+      name: 'search_docs',
+      arguments: { query: 'late-marker', limit: 1 },
+    });
+    const result = search.structuredContent as {
+      results: { chunkId: string }[];
+    };
+    const otherSection = await client.callTool({
+      name: 'fetch_docs',
+      arguments: { documentId, sectionId: result.results[0]!.chunkId },
+    });
+    expect(otherSection.isError).toBeFalsy();
+    expect(otherSection.structuredContent).toMatchObject({
+      found: false,
+      sections: [],
+    });
+  });
+
   it('rejects document IDs from another configured major', async () => {
     const result = await client.callTool({
       name: 'fetch_docs',
