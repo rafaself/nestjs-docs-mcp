@@ -4,9 +4,10 @@ import {
   readContentAliases,
   readHistoricalSourceIndex,
   readSourceIndex,
+  REPOSITORY,
   sourceUrl,
-} from '../../../../../../src/modules/documentation/infrastructure/github/documentation-source.js';
-import type { DocumentationSnapshot } from '../../../../../../src/modules/documentation/domain/documentation.types.js';
+} from '../../../../../../apps/docs-indexer/src/integrations/nestjs/github/documentation-source.js';
+import type { DocumentationSnapshot } from '@nestjs-docs/documentation-engine/domain/documentation.types.js';
 import {
   revision,
   loadIngestionFixtures,
@@ -52,7 +53,9 @@ describe('source download', () => {
       );
     };
 
-    await expect(downloadDocumentation(12, fetcher)).resolves.toEqual(snapshot);
+    await expect(downloadDocumentation('12', fetcher)).resolves.toEqual(
+      snapshot,
+    );
     expect(
       requests.filter((url) => url.endsWith('/commits/master')),
     ).toHaveLength(1);
@@ -86,7 +89,7 @@ describe('source download', () => {
       return Promise.reject(failures[failedDocuments++]!);
     };
     try {
-      await downloadDocumentation(12, fetcher);
+      await downloadDocumentation('12', fetcher);
       throw new Error('Expected download to fail');
     } catch (error) {
       expect(error).toBeInstanceOf(AggregateError);
@@ -118,7 +121,7 @@ describe('source download', () => {
       }
       return Promise.resolve(new Response('# Documentation'));
     };
-    await expect(downloadDocumentation(12, fetcher)).rejects.toMatchObject({
+    await expect(downloadDocumentation('12', fetcher)).rejects.toMatchObject({
       message: 'Download failed',
       cause: failure,
     });
@@ -163,19 +166,23 @@ describe('source download', () => {
       );
     };
 
-    const result = await downloadDocumentation(11, fetcher);
+    const result = await downloadDocumentation('11', fetcher);
 
     expect(result).toMatchObject({
-      version: 11,
-      ref: '11.0.0',
-      revision: revision11,
+      version: '11',
+      source: {
+        kind: 'git',
+        repository: REPOSITORY,
+        ref: '11.0.0',
+        revision: revision11,
+      },
     });
     expect(result.documents.map((document) => document.canonicalUrl)).toEqual([
       'https://docs.nestjs.com/v11/providers',
       'https://docs.nestjs.com/v11',
     ]);
     expect(requests.some((url) => url.includes('/commits/master'))).toBe(false);
-    expect(DOCUMENTATION_SOURCES[11].ref).toBe('11.0.0');
+    expect(DOCUMENTATION_SOURCES['11'].ref).toBe('11.0.0');
     expect(
       requests.filter((url) => url.startsWith(sourceUrl(revision11, ''))),
     ).toHaveLength(2);
@@ -186,7 +193,7 @@ describe('source download', () => {
     async (status) => {
       const fetcher: typeof fetch = () =>
         Promise.resolve(new Response('Unavailable', { status }));
-      await expect(downloadDocumentation(12, fetcher)).rejects.toThrow(
+      await expect(downloadDocumentation('12', fetcher)).rejects.toThrow(
         `(${status})`,
       );
     },
@@ -195,7 +202,7 @@ describe('source download', () => {
   it('rejects invalid revisions before constructing raw source URLs', async () => {
     const fetcher: typeof fetch = () =>
       Promise.resolve(Response.json({ sha: '../master' }));
-    await expect(downloadDocumentation(12, fetcher)).rejects.toThrow();
+    await expect(downloadDocumentation('12', fetcher)).rejects.toThrow();
   });
 
   it('rejects a snapshot when a chapter download fails after valid metadata', async () => {
@@ -214,7 +221,7 @@ describe('source download', () => {
         return Promise.resolve(new Response(aliases));
       return Promise.resolve(new Response('Missing chapter', { status: 404 }));
     };
-    await expect(downloadDocumentation(12, fetcher)).rejects.toThrow(
+    await expect(downloadDocumentation('12', fetcher)).rejects.toThrow(
       'Download failed (404)',
     );
   });
@@ -222,7 +229,9 @@ describe('source download', () => {
   it('bounds individual download sizes', async () => {
     const fetcher: typeof fetch = () =>
       Promise.resolve(new Response('x'.repeat(4 * 1024 * 1024 + 1)));
-    await expect(downloadDocumentation(12, fetcher)).rejects.toThrow('exceeds');
+    await expect(downloadDocumentation('12', fetcher)).rejects.toThrow(
+      'exceeds',
+    );
   });
 
   it('fails closed when upstream alias syntax changes or contains path traversal', () => {

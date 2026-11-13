@@ -2,19 +2,25 @@ import { createHash } from 'node:crypto';
 import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { DocumentationIndexWriter } from '../../dist/modules/documentation/infrastructure/sqlite/indexing/index-writer.js';
-import { validateDocumentationIndex } from '../../dist/modules/documentation/infrastructure/sqlite/indexing/index-integrity.js';
-import { SUPPORTED_DOCUMENTATION_VERSIONS } from '../../dist/modules/documentation/domain/documentation-version.js';
+import { DocumentationIndexWriter } from '@nestjs-docs/documentation-engine/infrastructure/sqlite/indexing/index-writer.js';
+import { validateDocumentationIndex } from '@nestjs-docs/documentation-engine/infrastructure/sqlite/indexing/index-integrity.js';
+import { SUPPORTED_DOCUMENTATION_VERSIONS } from '../../apps/docs-indexer/dist/integrations/nestjs/version/documentation-version.js';
+import { ingestNestJsDocumentation } from '../../apps/docs-indexer/dist/integrations/nestjs/documentation.integration.js';
 import {
-  downloadDocumentation,
   resolveDocumentationSource,
   REPOSITORY,
-} from '../../dist/modules/documentation/infrastructure/github/documentation-source.js';
-import { parseDocument } from '../../dist/modules/documentation/infrastructure/markdown/markdown-parser.js';
-import { ingestSnapshot } from '../../dist/modules/documentation/application/services/documentation-ingestion.service.js';
-import { writeDocumentationCorpus } from '../../dist/modules/documentation/infrastructure/filesystem/documentation-corpus-store.js';
+} from '../../apps/docs-indexer/dist/integrations/nestjs/github/documentation-source.js';
+import { writeDocumentationCorpus } from '@nestjs-docs/documentation-engine/infrastructure/filesystem/documentation-corpus-store.js';
+import {
+  DOCUMENTATION_RUNTIME_MANIFEST_VERSION,
+  DocumentationIndexRuntimeManifestSchema,
+} from '@nestjs-docs/documentation-engine/domain/documentation-index-manifest.schemas.js';
+import {
+  DOCUMENTATION_INDEX_FORMAT_VERSION,
+  DOCUMENTATION_INDEX_SCHEMA_VERSION,
+} from '@nestjs-docs/documentation-engine/infrastructure/sqlite/index-schema.js';
 
-const INDEX_PIPELINE_VERSION = 1;
+const INDEX_PIPELINE_VERSION = 2;
 
 function argument(name, fallback) {
   const index = process.argv.indexOf(name);
@@ -72,8 +78,7 @@ async function main() {
         await copyFile(previousFiles[1], databasePath);
       }
 
-      const snapshot = await downloadDocumentation(version);
-      const corpus = ingestSnapshot(snapshot, parseDocument);
+      const { snapshot, corpus } = await ingestNestJsDocumentation(version);
       await writeDocumentationCorpus(corpus, corpusPath);
 
       const index = new DocumentationIndexWriter(databasePath, version);
@@ -83,7 +88,7 @@ async function main() {
         index.close();
       }
       console.error(
-        `NestJS v${version}: synchronized source revision ${snapshot.revision}`,
+        `NestJS v${version}: synchronized source revision ${snapshot.source.revision}`,
       );
     }
 
@@ -107,6 +112,31 @@ async function main() {
       corpusSha256: await hashFile(corpusPath),
       indexSha256: await hashFile(databasePath),
     };
+    const runtimeManifest = DocumentationIndexRuntimeManifestSchema.parse({
+      manifestVersion: DOCUMENTATION_RUNTIME_MANIFEST_VERSION,
+      documentation: { id: REPOSITORY, version: key },
+      source: {
+        kind: 'git',
+        repository: REPOSITORY,
+        ref: corpus.source.ref,
+        revision: corpus.source.revision,
+      },
+      index: {
+        file: `${prefix}.sqlite`,
+        sha256: versionEntries[key].indexSha256,
+        documentationVersion: key,
+        sourceRevision: corpus.source.revision,
+        schemaVersion: DOCUMENTATION_INDEX_SCHEMA_VERSION,
+        formatVersion: DOCUMENTATION_INDEX_FORMAT_VERSION,
+        documentCount: validated.documentCount,
+        chunkCount: validated.chunkCount,
+      },
+    });
+    await writeFile(
+      join(outputDirectory, `${prefix}.manifest.json`),
+      `${JSON.stringify(runtimeManifest, null, 2)}\n`,
+      'utf8',
+    );
   }
 
   const manifest = {

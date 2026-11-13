@@ -1,10 +1,8 @@
 import { parseArgs } from 'node:util';
-import { parseDocumentationVersion } from '../../../modules/documentation/domain/documentation-version.js';
-import { downloadDocumentation } from '../../../modules/documentation/infrastructure/github/documentation-source.js';
-import { parseDocument } from '../../../modules/documentation/infrastructure/markdown/markdown-parser.js';
-import { writeDocumentationCorpus } from '../../../modules/documentation/infrastructure/filesystem/documentation-corpus-store.js';
-import { ingestSnapshot } from '../../../modules/documentation/application/services/documentation-ingestion.service.js';
+import { parseDocumentationVersion } from '../integrations/nestjs/version/documentation-version.js';
+import { writeDocumentationCorpus } from '@nestjs-docs/documentation-engine/infrastructure/filesystem/documentation-corpus-store.js';
 import { documentationCorpusPath } from '../paths.js';
+import { ingestNestJsDocumentation } from '../integrations/nestjs/documentation.integration.js';
 
 export async function ingestDocumentation(args: string[]): Promise<void> {
   const version = parseDocumentationVersion(process.env.NESTJS_VERSION);
@@ -20,14 +18,17 @@ export async function ingestDocumentation(args: string[]): Promise<void> {
   if (!Number.isSafeInteger(maxChunkChars) || maxChunkChars < 1) {
     throw new Error('--max-chars must be a positive integer');
   }
-  const snapshot = await downloadDocumentation(version);
-  const corpus = ingestSnapshot(snapshot, parseDocument, maxChunkChars);
+  const { snapshot, corpus } = await ingestNestJsDocumentation(
+    version,
+    fetch,
+    maxChunkChars,
+  );
   await writeDocumentationCorpus(corpus, values.output);
   const chunks = corpus.documents.reduce(
     (sum, doc) => sum + doc.chunks.length,
     0,
   );
   console.error(
-    `Ingested ${corpus.documents.length} documents and ${chunks} chunks at ${snapshot.revision} into ${values.output}`,
+    `Ingested ${corpus.documents.length} documents and ${chunks} chunks at ${snapshot.source.revision} into ${values.output}`,
   );
 }

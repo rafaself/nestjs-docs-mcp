@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
-import { parseDocumentationVersion } from '../../../modules/documentation/domain/documentation-version.js';
-import { DocumentationIndexWriter } from '../../../modules/documentation/infrastructure/sqlite/indexing/index-writer.js';
-import { searchDatabasePath } from '../../../modules/documentation/infrastructure/sqlite/index-paths.js';
+import { parseDocumentationVersion } from '../integrations/nestjs/version/documentation-version.js';
+import { DocumentationIndexWriter } from '@nestjs-docs/documentation-engine/infrastructure/sqlite/indexing/index-writer.js';
+import { searchDatabasePath } from '@nestjs-docs/documentation-engine/infrastructure/sqlite/index-paths.js';
 import { documentationCorpusPath } from '../paths.js';
 
 export async function indexDocumentation(args: string[]): Promise<void> {

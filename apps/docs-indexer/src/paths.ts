@@ -1,4 +1,4 @@
-import type { NestJsDocumentationVersion } from '../../modules/documentation/domain/documentation-version.js';
+import type { NestJsDocumentationVersion } from './integrations/nestjs/version/documentation-version.js';
 
 export function documentationCorpusPath(
   version: NestJsDocumentationVersion,

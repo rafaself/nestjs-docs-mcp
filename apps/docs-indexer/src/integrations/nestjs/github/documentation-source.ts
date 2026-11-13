@@ -1,15 +1,17 @@
 import { z } from 'zod';
 import JSON5 from 'json5';
 import {
-  DOCUMENTATION_REPOSITORY,
+  NESTJS_DOCUMENTATION_REPOSITORY,
+  createNestJsDocumentationIdentity,
   type NestJsDocumentationVersion,
-} from '../../domain/documentation-version.js';
+} from '../version/documentation-version.js';
 import type {
   DocumentationSnapshot,
+  GitDocumentationSource,
   SourceDocument,
-} from '../../domain/documentation.types.js';
+} from '@nestjs-docs/documentation-engine/domain/documentation.types.js';
 
-export const REPOSITORY = DOCUMENTATION_REPOSITORY;
+export const REPOSITORY = NESTJS_DOCUMENTATION_REPOSITORY;
 const API = 'https://api.github.com/repos/nestjs/docs.nestjs.com';
 const RAW = 'https://raw.githubusercontent.com/nestjs/docs.nestjs.com';
 const SITE = 'https://docs.nestjs.com';
@@ -29,12 +31,14 @@ export const DOCUMENTATION_SOURCES: Record<
   NestJsDocumentationVersion,
   DocumentationSourceConfig
 > = {
-  11: {
+  '11': {
     ref: '11.0.0',
     canonicalRoot: `${SITE}/v11`,
   },
-  12: { ref: 'master', canonicalRoot: SITE },
+  '12': { ref: 'master', canonicalRoot: SITE },
 };
+
+type DocumentationSourceEntry = Pick<SourceDocument, 'path' | 'canonicalUrl'>;
 
 // The historical branch predates the current generated content alias manifest.
 const V11_CANONICAL_ROUTES: ReadonlyMap<string, string> = new Map([
@@ -158,7 +162,7 @@ export function readSourceIndex(
   navigation: string,
   aliases: Map<string, string>,
   canonicalRoot = SITE,
-): Omit<SourceDocument, 'markdown'>[] {
+): DocumentationSourceEntry[] {
   const block = navigation.match(
     /export const NAV_ITEMS[^=]*=\s*(\[[\s\S]*\]);?\s*$/,
   );
@@ -168,7 +172,7 @@ export function readSourceIndex(
     );
   const data: unknown = JSON5.parse(block[1]);
   const items = z.array(navigationItemSchema).parse(data);
-  const documents = new Map<string, Omit<SourceDocument, 'markdown'>>();
+  const documents = new Map<string, DocumentationSourceEntry>();
   const visit = (items: NavigationItem[]): void => {
     for (const item of items) {
       if (item.externalUrl || item.isPending) continue;
@@ -201,7 +205,7 @@ export function readSourceIndex(
 export function readHistoricalSourceIndex(
   treeSource: string,
   canonicalRoot = `${SITE}/v11`,
-): Omit<SourceDocument, 'markdown'>[] {
+): DocumentationSourceEntry[] {
   const parsed: unknown = JSON.parse(treeSource);
   const tree = z
     .object({
@@ -219,7 +223,7 @@ export function readHistoricalSourceIndex(
     throw new Error('Historical documentation tree is empty or too large');
   }
 
-  const documents = new Map<string, Omit<SourceDocument, 'markdown'>>();
+  const documents = new Map<string, DocumentationSourceEntry>();
   for (const path of markdownPaths) {
     if (!/^content\/[a-z0-9-]+(?:\/[a-z0-9-]+)*\.md$/u.test(path)) {
       throw new Error(`Unsafe historical content path: ${path}`);
@@ -241,14 +245,19 @@ export function readHistoricalSourceIndex(
 export async function resolveDocumentationSource(
   version: NestJsDocumentationVersion,
   fetcher: typeof fetch = fetch,
-): Promise<Pick<DocumentationSnapshot, 'version' | 'ref' | 'revision'>> {
+): Promise<GitDocumentationSource> {
   const source = DOCUMENTATION_SOURCES[version];
   const revision = z
     .object({ sha: z.string().regex(/^[a-f0-9]{40}$/u) })
     .parse(
       JSON.parse(await downloadText(`${API}/commits/${source.ref}`, fetcher)),
     ).sha;
-  return { version, ref: source.ref, revision };
+  return {
+    kind: 'git',
+    repository: REPOSITORY,
+    ref: source.ref,
+    revision,
+  };
 }
 
 async function resolveTreeRevision(
@@ -268,14 +277,17 @@ async function resolveTreeRevision(
 }
 
 export async function downloadDocumentation(
-  version: NestJsDocumentationVersion = 12,
+  version: NestJsDocumentationVersion = '12',
   fetcher: typeof fetch = fetch,
 ): Promise<DocumentationSnapshot> {
   const source = DOCUMENTATION_SOURCES[version];
-  const { revision } = await resolveDocumentationSource(version, fetcher);
-  let entries: Omit<SourceDocument, 'markdown'>[];
-  if (version === 11) {
-    const treeRevision = await resolveTreeRevision(revision, fetcher);
+  const provenance = await resolveDocumentationSource(version, fetcher);
+  let entries: DocumentationSourceEntry[];
+  if (version === '11') {
+    const treeRevision = await resolveTreeRevision(
+      provenance.revision,
+      fetcher,
+    );
     const tree = await downloadText(
       `${API}/git/trees/${treeRevision}?recursive=1`,
       fetcher,
@@ -284,10 +296,13 @@ export async function downloadDocumentation(
   } else {
     const [index, generator] = await Promise.all([
       downloadText(
-        sourceUrl(revision, 'src/app/shared/nav/nav-items.ts'),
+        sourceUrl(provenance.revision, 'src/app/shared/nav/nav-items.ts'),
         fetcher,
       ),
-      downloadText(sourceUrl(revision, 'tools/generate-llms-txt.ts'), fetcher),
+      downloadText(
+        sourceUrl(provenance.revision, 'tools/generate-llms-txt.ts'),
+        fetcher,
+      ),
     ]);
     entries = readSourceIndex(
       index,
@@ -304,9 +319,11 @@ export async function downloadDocumentation(
       const entry = entries[index]!;
       try {
         documents[index] = {
+          ...createNestJsDocumentationIdentity(version, entry.path),
           ...entry,
+          sourceLocation: sourceUrl(provenance.revision, entry.path),
           markdown: await downloadText(
-            sourceUrl(revision, entry.path),
+            sourceUrl(provenance.revision, entry.path),
             fetcher,
           ),
         };
@@ -326,5 +343,5 @@ export async function downloadDocumentation(
       failures,
       `Multiple documentation downloads failed: ${failures[0]!.message}`,
     );
-  return { version, ref: source.ref, revision, documents };
+  return { version, source: provenance, documents };
 }
