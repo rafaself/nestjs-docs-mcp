@@ -6,6 +6,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SUPPORTED_DOCUMENTATION_VERSIONS } from '../dist/documentation-version.js';
 import { DOCUMENTATION_SOURCES, REPOSITORY } from '../dist/ingestion/source.js';
 import {
+  PACKAGE_DESCRIPTION,
+  PACKAGE_NAME,
+  PACKAGE_VERSION,
+  packageMetadataSchema,
+} from '../dist/package-metadata.js';
+import {
   validateCorpusIndex,
   validateIndexIntegrity,
 } from '../dist/search/indexing/index-integrity.js';
@@ -13,9 +19,23 @@ import {
 const rootDirectory = fileURLToPath(new URL('../', import.meta.url));
 export async function verifyPackage(root = rootDirectory) {
   const dataDirectory = resolve(root, 'data');
-  const packageMetadata = JSON.parse(
-    await readFile(resolve(root, 'package.json'), 'utf8'),
+  const packageMetadata = packageMetadataSchema.parse(
+    JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8')),
   );
+  if (packageMetadata.name !== PACKAGE_NAME) {
+    throw new Error('npm package name does not match the MCP server name');
+  }
+  if (packageMetadata.version !== PACKAGE_VERSION) {
+    throw new Error(
+      'npm package version does not match the MCP server version',
+    );
+  }
+  if (packageMetadata.description !== PACKAGE_DESCRIPTION) {
+    throw new Error(
+      'npm package description does not match the MCP server description',
+    );
+  }
+
   const requiredPackageFiles = [
     'dist/**',
     ...SUPPORTED_DOCUMENTATION_VERSIONS.map(

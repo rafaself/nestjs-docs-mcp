@@ -156,6 +156,55 @@ describe('package index verification', () => {
     }
   });
 
+  it.each([
+    [
+      'name',
+      'different-name',
+      'npm package name does not match the MCP server name',
+    ],
+    [
+      'version',
+      '1.2.3',
+      'npm package version does not match the MCP server version',
+    ],
+    [
+      'description',
+      'Different description.',
+      'npm package description does not match the MCP server description',
+    ],
+  ] as const)(
+    'rejects a package %s that differs from MCP metadata',
+    (field, value, expectedError) => {
+      const packagePath = join(root, 'package.json');
+      const packageMetadata = JSON.parse(readFileSync(packagePath, 'utf8')) as {
+        name: string;
+        version: string;
+        description: string;
+      };
+      packageMetadata[field] = value;
+      writeFileSync(packagePath, JSON.stringify(packageMetadata));
+
+      const result = verify();
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(expectedError);
+    },
+  );
+
+  it('rejects malformed package metadata', () => {
+    const packagePath = join(root, 'package.json');
+    const packageMetadata = JSON.parse(readFileSync(packagePath, 'utf8')) as {
+      name: unknown;
+      version: unknown;
+      description: unknown;
+    };
+    packageMetadata.description = 42;
+    writeFileSync(packagePath, JSON.stringify(packageMetadata));
+
+    const result = verify();
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('description');
+  });
+
   it.each(['schema', 'version'] as const)(
     'rejects %s changes in both runtime and package verification',
     (change) => {

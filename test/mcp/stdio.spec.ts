@@ -12,6 +12,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import {
+  PACKAGE_DESCRIPTION,
+  PACKAGE_NAME,
+  PACKAGE_VERSION,
+} from '../../src/package-metadata.js';
 
 const entryPoint = fileURLToPath(
   new URL('../../dist/stdio.js', import.meta.url),
@@ -74,7 +79,13 @@ describe('MCP stdio server', () => {
         expect(messages[0]).toMatchObject({
           jsonrpc: '2.0',
           id: 1,
-          result: { serverInfo: { name: 'nestjs-docs-mcp' } },
+          result: {
+            serverInfo: {
+              name: PACKAGE_NAME,
+              version: PACKAGE_VERSION,
+              description: PACKAGE_DESCRIPTION,
+            },
+          },
         });
         expect(stderr).toContain('NestFactory');
       } finally {
@@ -155,6 +166,15 @@ describe('MCP stdio server', () => {
         .map((line) => JSON.parse(line) as Record<string, unknown>);
       expect(messages).toHaveLength(2);
       expect(messages[0]).toMatchObject({ jsonrpc: '2.0', id: 1 });
+      expect(messages[0]).toMatchObject({
+        result: {
+          serverInfo: {
+            name: PACKAGE_NAME,
+            version: PACKAGE_VERSION,
+            description: PACKAGE_DESCRIPTION,
+          },
+        },
+      });
       expect(messages[1]).toMatchObject({ jsonrpc: '2.0', id: 2 });
       expect(messages[1]?.['result']).toHaveProperty('content');
       expect(stderr).toMatch(/MCP tool search_docs success in \d+ ms/u);
