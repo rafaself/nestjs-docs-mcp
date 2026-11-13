@@ -293,6 +293,27 @@ describe('DocumentationSearchService', () => {
     expect(service.fetchDocument(corpus.documents[0]!.id)).not.toBeNull();
   });
 
+  it('rejects malformed corpus documents and chunks before changing the index', async () => {
+    const corpus = await loadSearchCorpus();
+    service.indexCorpus(corpus);
+    const existing = service.search('ExecutionContext');
+    const document = corpus.documents[0]!;
+    const chunk = document.chunks[0]!;
+    const invalidValues: unknown[] = [
+      null,
+      { ...corpus, documents: [{ ...document, title: 42 }] },
+      {
+        ...corpus,
+        documents: [{ ...document, chunks: [{ ...chunk, markdown: null }] }],
+      },
+      { ...corpus, documents: [document, document] },
+    ];
+    for (const value of invalidValues) {
+      expect(() => service.indexCorpus(value)).toThrow();
+      expect(service.search('ExecutionContext')).toEqual(existing);
+    }
+  });
+
   it('rolls back a failed document update without dropping the previous content', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'nestjs-docs-failed-sync-'));
     const databasePath = join(directory, 'documentation.sqlite');

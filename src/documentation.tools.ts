@@ -1,7 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Tool } from '@nestjs/mcp';
 import * as z from 'zod';
-import { DocumentationSearchService } from './search/search.service.js';
+import type {
+  DocumentationReader,
+  DocumentationSearchResult,
+  FetchedDocumentation,
+} from './search/documentation-search.types.js';
+import type { NestJsDocumentationVersion } from './documentation-version.js';
+import { DOCUMENTATION_READER } from './search/search.tokens.js';
 import {
   DEFAULT_SEARCH_RESULT_LIMIT,
   DOCUMENT_ID_PATTERN,
@@ -82,7 +88,10 @@ const fetchOutputSchema = z.object({
 
 @Injectable()
 export class DocumentationTools {
-  constructor(private readonly documentation: DocumentationSearchService) {}
+  constructor(
+    @Inject(DOCUMENTATION_READER)
+    private readonly documentation: DocumentationReader,
+  ) {}
 
   @Tool({
     name: 'search_docs',
@@ -102,21 +111,10 @@ export class DocumentationTools {
       query,
       limit ?? DEFAULT_SEARCH_RESULT_LIMIT,
     );
-    const formatted = !results.length
-      ? 'No matching NestJS documentation found.'
-      : [
-          `Documentation major: v${this.documentation.documentationVersion}`,
-          ...results.map((result, index) =>
-            [
-              `### ${index + 1}. ${result.title}`,
-              `Document ID: ${result.documentId}`,
-              `Section ID: ${result.chunkId}`,
-              `Source revision: ${result.sourceRevision}`,
-              `Source: ${result.canonicalUrl}`,
-              `Excerpt: ${result.excerpt}`,
-            ].join('\n'),
-          ),
-        ].join('\n\n');
+    const formatted = formatSearchResults(
+      results,
+      this.documentation.documentationVersion,
+    );
     return {
       content: [{ type: 'text' as const, text: formatted }],
       structuredContent: {
@@ -174,25 +172,10 @@ export class DocumentationTools {
         },
       };
 
-    const sections = document.sections
-      .map(
-        (section) =>
-          `## ${section.headingPath}\nSource: ${section.canonicalUrl}\n\n${section.markdown}`,
-      )
-      .join('\n\n');
-    const truncationNotice = document.truncated
-      ? `\n\n[Document excerpt truncated. Continue with cursor: ${document.nextCursor}]`
-      : '';
-
-    const formatted = [
-      `# ${document.title}`,
-      `Documentation major: v${this.documentation.documentationVersion}`,
-      `Document ID: ${document.documentId}`,
-      `Source revision: ${document.sourceRevision}`,
-      '',
-      sections,
-      truncationNotice,
-    ].join('\n');
+    const formatted = formatDocument(
+      document,
+      this.documentation.documentationVersion,
+    );
     return {
       content: [{ type: 'text' as const, text: formatted }],
       structuredContent: {
@@ -208,4 +191,50 @@ export class DocumentationTools {
       },
     };
   }
+}
+
+function formatSearchResults(
+  results: DocumentationSearchResult[],
+  version: NestJsDocumentationVersion,
+): string {
+  return !results.length
+    ? 'No matching NestJS documentation found.'
+    : [
+        `Documentation major: v${version}`,
+        ...results.map((result, index) =>
+          [
+            `### ${index + 1}. ${result.title}`,
+            `Document ID: ${result.documentId}`,
+            `Section ID: ${result.chunkId}`,
+            `Source revision: ${result.sourceRevision}`,
+            `Source: ${result.canonicalUrl}`,
+            `Excerpt: ${result.excerpt}`,
+          ].join('\n'),
+        ),
+      ].join('\n\n');
+}
+
+function formatDocument(
+  document: FetchedDocumentation,
+  version: NestJsDocumentationVersion,
+): string {
+  const sections = document.sections
+    .map(
+      (section) =>
+        `## ${section.headingPath}\nSource: ${section.canonicalUrl}\n\n${section.markdown}`,
+    )
+    .join('\n\n');
+  const truncationNotice = document.truncated
+    ? `\n\n[Document excerpt truncated. Continue with cursor: ${document.nextCursor}]`
+    : '';
+
+  return [
+    `# ${document.title}`,
+    `Documentation major: v${version}`,
+    `Document ID: ${document.documentId}`,
+    `Source revision: ${document.sourceRevision}`,
+    '',
+    sections,
+    truncationNotice,
+  ].join('\n');
 }

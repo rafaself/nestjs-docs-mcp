@@ -5,7 +5,6 @@ import {
   documentationCorpusPath,
   parseDocumentationVersion,
 } from '../documentation-version.js';
-import type { DocumentationCorpus } from '../ingestion/types.js';
 import { DocumentationSearchModule } from './search.module.js';
 import { DocumentationSearchService } from './search.service.js';
 import { searchDatabasePath } from './search.constants.js';
@@ -19,9 +18,7 @@ async function main(): Promise<void> {
     },
     allowPositionals: false,
   });
-  const corpus = JSON.parse(
-    await readFile(values.input, 'utf8'),
-  ) as DocumentationCorpus;
+  const corpus: unknown = JSON.parse(await readFile(values.input, 'utf8'));
   const app = await NestFactory.createApplicationContext(
     DocumentationSearchModule.register(values.database, version),
     { logger: false },
