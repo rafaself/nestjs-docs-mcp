@@ -3,7 +3,7 @@ import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DocumentationSearchService } from '../dist/search/search.service.js';
-import { validateDocumentationIndex } from '../dist/search/index-integrity.js';
+import { validateDocumentationIndex } from '../dist/search/indexing/index-integrity.js';
 import {
   downloadDocumentation,
   resolveDocumentationSource,

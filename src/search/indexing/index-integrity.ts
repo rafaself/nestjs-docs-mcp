@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import type { NestJsDocumentationVersion } from '../documentation-version.js';
-import type { DocumentationCorpus } from '../ingestion/types.js';
-import { REPOSITORY } from '../ingestion/source.js';
+import type { NestJsDocumentationVersion } from '../../documentation-version.js';
+import type { DocumentationCorpus } from '../../ingestion/types.js';
+import { REPOSITORY } from '../../ingestion/source.js';
 
 const RAW_SOURCE = 'https://raw.githubusercontent.com/nestjs/docs.nestjs.com';
 const SITE = 'https://docs.nestjs.com';

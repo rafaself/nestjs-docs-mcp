@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import type { INestApplicationContext } from '@nestjs/common';
-import { DocumentationSearchModule } from '../src/search/search.module.js';
-import { DocumentationSearchService } from '../src/search/search.service.js';
-import { loadSearchCorpus } from './search.fixtures.js';
+import { DocumentationSearchModule } from '../../src/search/search.module.js';
+import { DocumentationSearchService } from '../../src/search/search.service.js';
+import { loadSearchCorpus } from '../fixtures/search.fixtures.js';
 
 describe('documentation search integration', () => {
   let directory: string;

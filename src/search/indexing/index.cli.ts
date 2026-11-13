@@ -4,10 +4,10 @@ import { parseArgs } from 'node:util';
 import {
   documentationCorpusPath,
   parseDocumentationVersion,
-} from '../documentation-version.js';
-import { DocumentationSearchModule } from './search.module.js';
-import { DocumentationSearchService } from './search.service.js';
-import { searchDatabasePath } from './search.constants.js';
+} from '../../documentation-version.js';
+import { DocumentationSearchModule } from '../search.module.js';
+import { DocumentationSearchService } from '../search.service.js';
+import { searchDatabasePath } from '../search.constants.js';
 
 async function main(): Promise<void> {
   const version = parseDocumentationVersion(process.env.NESTJS_VERSION);

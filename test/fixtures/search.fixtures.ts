@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import { ingestSnapshot } from '../src/ingestion/pipeline.js';
-import type { DocumentationSnapshot } from '../src/ingestion/types.js';
+import { ingestSnapshot } from '../../src/ingestion/pipeline.js';
+import type { DocumentationSnapshot } from '../../src/ingestion/types.js';
 
 const revision = 'c'.repeat(40);
 
@@ -19,7 +19,7 @@ export async function loadSearchCorpus() {
       ...source,
       markdown: await readFile(
         new URL(
-          `./fixtures/documentation/${source.path.replace('content/', '')}`,
+          `./documentation/${source.path.replace('content/', '')}`,
           import.meta.url,
         ),
         'utf8',

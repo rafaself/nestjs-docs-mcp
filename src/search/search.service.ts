@@ -7,7 +7,7 @@ import {
   DEFAULT_SEARCH_RESULT_LIMIT,
   MAX_SEARCH_RESULT_LIMIT,
 } from './search.constants.js';
-import { indexDocumentationCorpus } from './index-corpus.js';
+import { indexDocumentationCorpus } from './indexing/index-corpus.js';
 import { buildSearchExpression, validateDocumentId } from './search-input.js';
 import { paginateDocumentation, type DocumentRow } from './document-page.js';
 import {

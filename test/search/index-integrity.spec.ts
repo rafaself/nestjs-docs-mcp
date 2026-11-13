@@ -2,9 +2,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { ingestSnapshot } from '../src/ingestion/pipeline.js';
-import { validateDocumentationIndex } from '../src/search/index-integrity.js';
-import { DocumentationSearchService } from '../src/search/search.service.js';
+import { ingestSnapshot } from '../../src/ingestion/pipeline.js';
+import { validateDocumentationIndex } from '../../src/search/indexing/index-integrity.js';
+import { DocumentationSearchService } from '../../src/search/search.service.js';
 
 describe('documentation index integrity validation', () => {
   it('requires exact content parity between the corpus and SQLite index', async () => {

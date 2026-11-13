@@ -5,14 +5,14 @@ import type {
   DocumentationReader,
   DocumentationSearchResult,
   FetchedDocumentation,
-} from './search/documentation-search.types.js';
-import type { NestJsDocumentationVersion } from './documentation-version.js';
-import { DOCUMENTATION_READER } from './search/search.tokens.js';
+} from '../search/documentation-search.types.js';
+import type { NestJsDocumentationVersion } from '../documentation-version.js';
+import { DOCUMENTATION_READER } from '../search/search.tokens.js';
 import {
   DEFAULT_SEARCH_RESULT_LIMIT,
   DOCUMENT_ID_PATTERN,
   MAX_SEARCH_QUERY_LENGTH,
-} from './search/search.constants.js';
+} from '../search/search.constants.js';
 
 const MAX_TOOL_SEARCH_RESULTS = 10;
 

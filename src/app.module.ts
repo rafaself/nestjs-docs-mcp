@@ -1,7 +1,7 @@
 import { DynamicModule, Module } from '@nestjs/common';
 import { McpModule } from '@nestjs/mcp';
 import { parseDocumentationVersion } from './documentation-version.js';
-import { DocumentationTools } from './documentation.tools.js';
+import { DocumentationTools } from './mcp/documentation.tools.js';
 import { searchDatabasePath } from './search/search.constants.js';
 import { DocumentationSearchModule } from './search/search.module.js';
 

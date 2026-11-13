@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { NestJsDocumentationVersion } from '../documentation-version.js';
+import type { NestJsDocumentationVersion } from '../../documentation-version.js';
 import { z } from 'zod';
 
 export function indexDocumentationCorpus(

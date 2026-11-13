@@ -5,10 +5,10 @@ import { NestFactory } from '@nestjs/core';
 import type { INestApplicationContext } from '@nestjs/common';
 import type { Client } from '@modelcontextprotocol/client';
 import { connectMcpClient } from '@nestjs/mcp/testing';
-import { AppModule } from '../src/app.module.js';
-import { ingestSnapshot } from '../src/ingestion/pipeline.js';
-import { DocumentationSearchService } from '../src/search/search.service.js';
-import { loadSearchCorpus } from './search.fixtures.js';
+import { AppModule } from '../../src/app.module.js';
+import { ingestSnapshot } from '../../src/ingestion/pipeline.js';
+import { DocumentationSearchService } from '../../src/search/search.service.js';
+import { loadSearchCorpus } from '../fixtures/search.fixtures.js';
 
 describe('documentation MCP tools', () => {
   let directory: string;

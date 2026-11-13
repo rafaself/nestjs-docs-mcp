@@ -1,0 +1,12 @@
+import { readFile } from 'node:fs/promises';
+import { readSourceIndex, readContentAliases } from '../../src/ingestion/source.js';
+import type { DocumentationSnapshot } from '../../src/ingestion/types.js';
+
+export const revision = 'a'.repeat(40);
+export const fixture = (path: string): Promise<string> => readFile(new URL(`./documentation/${path}`, import.meta.url), 'utf8');
+export async function loadIngestionFixtures(): Promise<{ snapshot: DocumentationSnapshot; index: string; aliases: string }> {
+  const [index, aliases] = await Promise.all([fixture('navigation.txt'), fixture('aliases.txt')]);
+  const entries = readSourceIndex(index, readContentAliases(aliases));
+  const documents = await Promise.all(entries.map(async (entry) => ({ ...entry, markdown: await fixture(entry.path.replace(/^content\//, '')) })));
+  return { index, aliases, snapshot: { version: 12, ref: 'master', revision, documents } };
+}

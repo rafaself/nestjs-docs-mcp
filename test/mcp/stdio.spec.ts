@@ -3,7 +3,9 @@ import { once } from 'node:events';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
-const entryPoint = fileURLToPath(new URL('../dist/main.js', import.meta.url));
+const entryPoint = fileURLToPath(
+  new URL('../../dist/main.js', import.meta.url),
+);
 
 describe('MCP stdio server', () => {
   it.each(['EOF', 'SIGINT', 'SIGTERM'] as const)(

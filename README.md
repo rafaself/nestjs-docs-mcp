@@ -181,13 +181,12 @@ TypeScript is pinned to the latest compatible 6.0 patch line because the current
 
 - `src/main.ts`: standalone application context, stdio transport, and shutdown handling.
 - `src/app.module.ts`: root module and MCP server registration.
-- `src/documentation.tools.ts`: read-only search and fetch MCP tools.
+- `src/mcp/`: read-only search and fetch MCP tools.
 - `src/ingestion/`: independent downloader, Markdown parser/chunker, corpus writer, and CLI.
-- `src/search/`: independent SQLite FTS5 index, Nest search module/service, and index CLI.
-- `test/ingestion.spec.ts` and `test/fixtures/documentation/`: offline ingestion coverage.
-- `test/search*.spec.ts` and search fixtures: offline search unit and integration coverage.
-- `test/mcp-tools.integration.spec.ts`: MCP client discovery, invocation, and input validation.
-- `test/stdio.spec.ts`: stdio process lifecycle integration tests.
+- `src/search/`: SQLite FTS5 search and retrieval, with index synchronization, validation, and the CLI in `src/search/indexing/`.
+- `test/ingestion/` and `test/fixtures/`: offline ingestion coverage and shared fixtures.
+- `test/search/`: search, indexing, pagination, and version-isolation coverage.
+- `test/mcp/`: MCP tool integration and stdio process lifecycle tests.
 
 ## License
 

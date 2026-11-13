@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import type { INestApplicationContext } from '@nestjs/common';
-import { ingestSnapshot } from '../src/ingestion/pipeline.js';
-import { DocumentationSearchModule } from '../src/search/search.module.js';
-import { DocumentationSearchService } from '../src/search/search.service.js';
+import { ingestSnapshot } from '../../src/ingestion/pipeline.js';
+import { DocumentationSearchModule } from '../../src/search/search.module.js';
+import { DocumentationSearchService } from '../../src/search/search.service.js';
 
 describe('documentation version isolation', () => {
   let directory: string;
