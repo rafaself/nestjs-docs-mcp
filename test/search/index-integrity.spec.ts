@@ -4,13 +4,13 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { ingestSnapshot } from '../../src/ingestion/pipeline.js';
 import { validateDocumentationIndex } from '../../src/search/indexing/index-integrity.js';
-import { DocumentationSearchService } from '../../src/search/search.service.js';
+import { DocumentationIndexWriter } from '../../src/search/indexing/index-writer.js';
 
 describe('documentation index integrity validation', () => {
   it('requires exact content parity between the corpus and SQLite index', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'nestjs-docs-integrity-'));
     const databasePath = join(directory, 'documentation.sqlite');
-    const index = new DocumentationSearchService(databasePath, 12);
+    const index = new DocumentationIndexWriter(databasePath, 12);
     const database = new DatabaseSync(databasePath);
     const corpus = ingestSnapshot({
       version: 12,
@@ -43,7 +43,7 @@ describe('documentation index integrity validation', () => {
       ).toThrow('SQLite content does not match corpus');
     } finally {
       database.close();
-      index.onModuleDestroy();
+      index.close();
       await rm(directory, { recursive: true, force: true });
     }
   });
@@ -51,7 +51,7 @@ describe('documentation index integrity validation', () => {
   it('rejects a supported-major corpus containing another major canonical URL', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'nestjs-docs-major-url-'));
     const databasePath = join(directory, 'documentation.sqlite');
-    const index = new DocumentationSearchService(databasePath, 12);
+    const index = new DocumentationIndexWriter(databasePath, 12);
     const corpus = ingestSnapshot({
       version: 12,
       ref: 'master',
@@ -82,7 +82,7 @@ describe('documentation index integrity validation', () => {
         validateDocumentationIndex(12, v11Corpus, databasePath),
       ).toThrow('document failed integrity checks');
     } finally {
-      index.onModuleDestroy();
+      index.close();
       await rm(directory, { recursive: true, force: true });
     }
   });
@@ -90,7 +90,7 @@ describe('documentation index integrity validation', () => {
   it('accepts section URLs anchored to the v11 documentation root', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'nestjs-docs-v11-root-'));
     const databasePath = join(directory, 'documentation.sqlite');
-    const index = new DocumentationSearchService(databasePath, 11);
+    const index = new DocumentationIndexWriter(databasePath, 11);
     const corpus = ingestSnapshot({
       version: 11,
       ref: '11.0.0',
@@ -111,7 +111,7 @@ describe('documentation index integrity validation', () => {
         chunkCount: 2,
       });
     } finally {
-      index.onModuleDestroy();
+      index.close();
       await rm(directory, { recursive: true, force: true });
     }
   });

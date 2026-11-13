@@ -1,13 +1,12 @@
-import { mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import type { NestJsDocumentationVersion } from '../documentation-version.js';
 import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
 import {
   DEFAULT_SEARCH_RESULT_LIMIT,
   MAX_SEARCH_RESULT_LIMIT,
 } from './search.constants.js';
-import { indexDocumentationCorpus } from './indexing/index-corpus.js';
+import { validateRuntimeIndex } from './runtime-index.js';
 import { buildSearchExpression, validateDocumentId } from './search-input.js';
 import { paginateDocumentation, type DocumentRow } from './document-page.js';
 import {
@@ -52,59 +51,20 @@ export class DocumentationSearchService implements OnModuleDestroy {
   ) {
     this.#documentationVersion = documentationVersion;
     if (!databasePath) throw new Error('A SQLite database path is required');
-    const path =
-      databasePath === ':memory:' ? databasePath : resolve(databasePath);
-    if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
-
-    this.database = new DatabaseSync(path, { timeout: 5000 });
+    if (databasePath === ':memory:') {
+      throw new Error('A pre-existing SQLite index file is required');
+    }
+    this.database = new DatabaseSync(resolve(databasePath), {
+      readOnly: true,
+      timeout: 5000,
+    });
     try {
-      this.initializeSchema();
+      validateRuntimeIndex(this.database, documentationVersion);
     } catch (error) {
       this.database.close();
       this.closed = true;
       throw error;
     }
-  }
-
-  private initializeSchema(): void {
-    const existing = this.database
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'documentation_search'",
-      )
-      .get();
-    if (existing) {
-      const columns = this.database
-        .prepare('PRAGMA table_info(documentation_search)')
-        .all()
-        .map((column) => column.name);
-      if (!columns.includes('documentation_version')) {
-        throw new Error(
-          'The SQLite index predates documentation version isolation. Rebuild it with npm run search:index for each NESTJS_VERSION.',
-        );
-      }
-    }
-    this.database.exec(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS documentation_search USING fts5(
-        title,
-        heading_path,
-        markdown,
-        documentation_version UNINDEXED,
-        chunk_id UNINDEXED,
-        document_id UNINDEXED,
-        canonical_url UNINDEXED,
-        source_revision UNINDEXED,
-        tokenize = 'unicode61'
-      );
-    `);
-  }
-
-  /** Synchronize this version's index with one ingested corpus. */
-  indexCorpus(corpus: unknown): number {
-    return indexDocumentationCorpus(
-      this.database,
-      this.documentationVersion,
-      corpus,
-    );
   }
 
   /** Search indexed sections. FTS operators are not accepted from user input. */

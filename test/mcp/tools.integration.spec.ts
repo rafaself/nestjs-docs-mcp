@@ -7,7 +7,7 @@ import type { Client } from '@modelcontextprotocol/client';
 import { connectMcpClient } from '@nestjs/mcp/testing';
 import { AppModule } from '../../src/app.module.js';
 import { ingestSnapshot } from '../../src/ingestion/pipeline.js';
-import { DocumentationSearchService } from '../../src/search/search.service.js';
+import { DocumentationIndexWriter } from '../../src/search/indexing/index-writer.js';
 import { loadSearchCorpus } from '../fixtures/search.fixtures.js';
 
 describe('documentation MCP tools', () => {
@@ -22,7 +22,7 @@ describe('documentation MCP tools', () => {
     const corpus = await loadSearchCorpus();
     documentId = corpus.documents[0]!.id;
 
-    const index = new DocumentationSearchService(databasePath, 12);
+    const index = new DocumentationIndexWriter(databasePath, 12);
     const longCorpus = ingestSnapshot({
       version: 12,
       ref: 'master',
@@ -39,7 +39,7 @@ describe('documentation MCP tools', () => {
       ...corpus,
       documents: [...corpus.documents, ...longCorpus.documents],
     });
-    index.onModuleDestroy();
+    index.close();
 
     app = await NestFactory.createApplicationContext(
       AppModule.register(databasePath),

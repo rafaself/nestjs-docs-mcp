@@ -6,6 +6,7 @@ import type { INestApplicationContext } from '@nestjs/common';
 import { ingestSnapshot } from '../../src/ingestion/pipeline.js';
 import { DocumentationSearchModule } from '../../src/search/search.module.js';
 import { DocumentationSearchService } from '../../src/search/search.service.js';
+import { DocumentationIndexWriter } from '../../src/search/indexing/index-writer.js';
 
 describe('documentation version isolation', () => {
   let directory: string;
@@ -18,22 +19,28 @@ describe('documentation version isolation', () => {
 
   beforeAll(async () => {
     directory = await mkdtemp(join(tmpdir(), 'nestjs-docs-version-'));
-    const databasePath = join(directory, 'shared.sqlite');
+    const databasePath11 = join(directory, 'v11.sqlite');
+    const databasePath12 = join(directory, 'v12.sqlite');
     corpus11 = createVersionCorpus(11, 'v11onlymango');
     corpus12 = createVersionCorpus(12, 'v12onlygrapefruit');
 
+    const writer11 = new DocumentationIndexWriter(databasePath11, 11);
+    const writer12 = new DocumentationIndexWriter(databasePath12, 12);
+    writer11.indexCorpus(corpus11);
+    writer12.indexCorpus(corpus12);
+    writer11.close();
+    writer12.close();
+
     app11 = await NestFactory.createApplicationContext(
-      DocumentationSearchModule.register(databasePath, 11),
+      DocumentationSearchModule.register(databasePath11, 11),
       { logger: false },
     );
     app12 = await NestFactory.createApplicationContext(
-      DocumentationSearchModule.register(databasePath, 12),
+      DocumentationSearchModule.register(databasePath12, 12),
       { logger: false },
     );
     service11 = app11.get(DocumentationSearchService);
     service12 = app12.get(DocumentationSearchService);
-    service11.indexCorpus(corpus11);
-    service12.indexCorpus(corpus12);
   });
 
   afterAll(async () => {
@@ -42,7 +49,7 @@ describe('documentation version isolation', () => {
     if (directory) await rm(directory, { recursive: true, force: true });
   });
 
-  it('keeps search results isolated in one shared SQLite file', () => {
+  it('keeps search results isolated in dedicated SQLite files', () => {
     expect(corpus11.source).toMatchObject({
       version: 11,
       ref: '11.0.0',
@@ -63,7 +70,7 @@ describe('documentation version isolation', () => {
     expect(service12.search('v11onlymango')).toEqual([]);
   });
 
-  it('rejects cross-version document IDs even when both versions are indexed', () => {
+  it('rejects cross-version document IDs across dedicated indexes', () => {
     const id11 = corpus11.documents[0]!.id;
     const id12 = corpus12.documents[0]!.id;
 
@@ -74,9 +81,17 @@ describe('documentation version isolation', () => {
   });
 
   it('refuses to index a corpus from another major', () => {
-    expect(() => service11.indexCorpus(corpus12)).toThrow(
-      'Documentation corpus must contain documents for NestJS v11',
+    const writer = new DocumentationIndexWriter(
+      join(directory, 'v11.sqlite'),
+      11,
     );
+    try {
+      expect(() => writer.indexCorpus(corpus12)).toThrow(
+        'Documentation corpus must contain documents for NestJS v11',
+      );
+    } finally {
+      writer.close();
+    }
   });
 });
 

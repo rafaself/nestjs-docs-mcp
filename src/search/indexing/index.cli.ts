@@ -1,12 +1,10 @@
 import { readFile } from 'node:fs/promises';
-import { NestFactory } from '@nestjs/core';
 import { parseArgs } from 'node:util';
 import {
   documentationCorpusPath,
   parseDocumentationVersion,
 } from '../../documentation-version.js';
-import { DocumentationSearchModule } from '../search.module.js';
-import { DocumentationSearchService } from '../search.service.js';
+import { DocumentationIndexWriter } from './index-writer.js';
 import { searchDatabasePath } from '../search.constants.js';
 
 async function main(): Promise<void> {
@@ -19,17 +17,14 @@ async function main(): Promise<void> {
     allowPositionals: false,
   });
   const corpus: unknown = JSON.parse(await readFile(values.input, 'utf8'));
-  const app = await NestFactory.createApplicationContext(
-    DocumentationSearchModule.register(values.database, version),
-    { logger: false },
-  );
+  const index = new DocumentationIndexWriter(values.database, version);
   try {
-    const chunks = app.get(DocumentationSearchService).indexCorpus(corpus);
+    const chunks = index.indexCorpus(corpus);
     console.error(
       `Indexed ${chunks} documentation chunks into ${values.database}`,
     );
   } finally {
-    await app.close();
+    index.close();
   }
 }
 

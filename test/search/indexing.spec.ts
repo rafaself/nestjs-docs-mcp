@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { ingestSnapshot } from '../../src/ingestion/pipeline.js';
 import { loadSearchCorpus } from '../fixtures/search.fixtures.js';
-import { DocumentationSearchService } from '../../src/search/search.service.js';
+import { TestSearchIndex as DocumentationSearchService } from '../fixtures/test-search-index.js';
 
 describe('DocumentationSearchService', () => {
   let service: DocumentationSearchService;

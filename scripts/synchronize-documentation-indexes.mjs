@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { DocumentationSearchService } from '../dist/search/search.service.js';
+import { DocumentationIndexWriter } from '../dist/search/indexing/index-writer.js';
 import { validateDocumentationIndex } from '../dist/search/indexing/index-integrity.js';
 import {
   downloadDocumentation,
@@ -74,11 +74,11 @@ async function main() {
       const corpus = ingestSnapshot(snapshot);
       await writeCorpus(corpus, corpusPath);
 
-      const index = new DocumentationSearchService(databasePath, version);
+      const index = new DocumentationIndexWriter(databasePath, version);
       try {
         index.indexCorpus(corpus);
       } finally {
-        index.onModuleDestroy();
+        index.close();
       }
       console.error(
         `NestJS v${version}: synchronized source revision ${snapshot.revision}`,

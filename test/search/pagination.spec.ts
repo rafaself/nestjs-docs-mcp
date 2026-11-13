@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { ingestSnapshot } from '../../src/ingestion/pipeline.js';
 import { MAX_FETCH_DOCUMENT_CHARS } from '../../src/search/search.constants.js';
-import { DocumentationSearchService } from '../../src/search/search.service.js';
+import { TestSearchIndex as DocumentationSearchService } from '../fixtures/test-search-index.js';
 
 describe('DocumentationSearchService', () => {
   let service: DocumentationSearchService;

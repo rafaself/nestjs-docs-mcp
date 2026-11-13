@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DocumentationSearchService } from '../dist/search/search.service.js';
 
-// The bundled indexes are copied because opening a search service initializes SQLite.
+// Work with temporary copies so evaluation never changes the bundled artifacts.
 const cases = [
   {
     version: 11,

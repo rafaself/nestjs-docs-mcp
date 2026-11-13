@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module.js';
 import { parseDocumentationVersion } from '../src/documentation-version.js';
 import { DocumentationSearchService } from '../src/search/search.service.js';
+import { searchDatabasePath } from '../src/search/search.constants.js';
 
 describe('documentation version configuration', () => {
   it('defaults to v12 and accepts only supported majors', () => {
@@ -28,7 +29,7 @@ describe('documentation version configuration', () => {
 
       process.env.NESTJS_VERSION = '11';
       app = await NestFactory.createApplicationContext(
-        AppModule.register(':memory:'),
+        AppModule.register(searchDatabasePath(11)),
         { logger: false },
       );
       process.env.NESTJS_VERSION = '12';

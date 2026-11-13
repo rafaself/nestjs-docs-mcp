@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { loadSearchCorpus } from '../fixtures/search.fixtures.js';
-import { DocumentationSearchService } from '../../src/search/search.service.js';
+import { TestSearchIndex as DocumentationSearchService } from '../fixtures/test-search-index.js';
 
 describe('DocumentationSearchService', () => {
   let service: DocumentationSearchService;

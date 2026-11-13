@@ -6,6 +6,7 @@ import type { INestApplicationContext } from '@nestjs/common';
 import { DocumentationSearchModule } from '../../src/search/search.module.js';
 import { DocumentationSearchService } from '../../src/search/search.service.js';
 import { loadSearchCorpus } from '../fixtures/search.fixtures.js';
+import { DocumentationIndexWriter } from '../../src/search/indexing/index-writer.js';
 
 describe('documentation search integration', () => {
   let directory: string;
@@ -16,12 +17,17 @@ describe('documentation search integration', () => {
   beforeAll(async () => {
     directory = await mkdtemp(join(tmpdir(), 'nestjs-docs-search-'));
     corpus = await loadSearchCorpus();
+    const index = new DocumentationIndexWriter(
+      join(directory, 'search.sqlite'),
+      12,
+    );
+    index.indexCorpus(corpus);
+    index.close();
     app = await NestFactory.createApplicationContext(
       DocumentationSearchModule.register(join(directory, 'search.sqlite'), 12),
       { logger: false },
     );
     service = app.get(DocumentationSearchService);
-    service.indexCorpus(corpus);
   });
 
   afterAll(async () => {
