@@ -1,0 +1,6 @@
+// Synthetic upstream metadata. It must be read as data, never executed.
+throw new Error('Do not execute this file');
+const CONTENT_ALIASES: Record<string, string> = {
+  '/': 'introduction',
+  '/providers': 'components',
+};

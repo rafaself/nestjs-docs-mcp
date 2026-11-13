@@ -1,0 +1,32 @@
+import { parseArgs } from 'node:util';
+import { downloadDocumentation } from './source.js';
+import { ingestSnapshot, writeCorpus } from './pipeline.js';
+
+async function main(): Promise<void> {
+  const { values } = parseArgs({
+    options: {
+      output: { type: 'string', default: 'data/documentation.json' },
+      'max-chars': { type: 'string', default: '4000' },
+    },
+    allowPositionals: false,
+  });
+  const maxChunkChars = Number(values['max-chars']);
+  if (!Number.isSafeInteger(maxChunkChars) || maxChunkChars < 1) {
+    throw new Error('--max-chars must be a positive integer');
+  }
+  const snapshot = await downloadDocumentation();
+  const corpus = ingestSnapshot(snapshot, maxChunkChars);
+  await writeCorpus(corpus, values.output);
+  const chunks = corpus.documents.reduce(
+    (sum, doc) => sum + doc.chunks.length,
+    0,
+  );
+  console.error(
+    `Ingested ${corpus.documents.length} documents and ${chunks} chunks at ${snapshot.revision} into ${values.output}`,
+  );
+}
+
+main().catch((error: unknown) => {
+  console.error(error);
+  process.exitCode = 1;
+});

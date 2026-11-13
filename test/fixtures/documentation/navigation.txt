@@ -1,0 +1,13 @@
+// Synthetic fixture matching the official navigation's static-data shape.
+export const NAV_ITEMS: NavItem[] = [
+  { title: 'Introduction', path: '/' },
+  {
+    title: 'Overview',
+    children: [
+      { title: 'Providers', path: '/providers' },
+      { title: 'MCP', path: '/mcp/overview' },
+      { title: 'Pending', path: '/pending', isPending: true },
+      { title: 'External', path: '/external', externalUrl: 'https://example.com' },
+    ],
+  },
+];
