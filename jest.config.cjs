@@ -2,6 +2,7 @@
 module.exports = {
   testEnvironment: 'node',
   testMatch: ['<rootDir>/test/**/*.spec.ts'],
+  globalSetup: '<rootDir>/test/build.cjs',
   extensionsToTreatAsEsm: ['.ts'],
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
