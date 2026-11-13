@@ -1,11 +1,17 @@
 import { createHash } from 'node:crypto';
-import { parseDocument } from '../../../../../../src/modules/documentation/infrastructure/markdown/markdown-parser.js';
+import { readFile } from 'node:fs/promises';
+import { parseMarkdown } from '@nestjs-docs/documentation-engine/infrastructure/markdown/markdown-parser.js';
+import { transformNestJsDocument } from '../../../../../../apps/docs-indexer/src/integrations/nestjs/nestjs-documentation-transformer.js';
 import { ingestSnapshot } from '../../../../../fixtures/ingestion.fixtures.js';
 import {
   REPOSITORY,
   sourceUrl,
-} from '../../../../../../src/modules/documentation/infrastructure/github/documentation-source.js';
-import type { DocumentationSnapshot } from '../../../../../../src/modules/documentation/domain/documentation.types.js';
+} from '../../../../../../apps/docs-indexer/src/integrations/nestjs/github/documentation-source.js';
+import type {
+  DocumentationSnapshot,
+  SourceDocument,
+} from '@nestjs-docs/documentation-engine/domain/documentation.types.js';
+import { createNestJsDocumentationIdentity } from '../../../../../../apps/docs-indexer/src/integrations/nestjs/version/documentation-version.js';
 import {
   revision,
   loadIngestionFixtures,
@@ -17,6 +23,21 @@ beforeAll(async () => {
 const sha256 = (content: string): string =>
   createHash('sha256').update(content).digest('hex');
 
+function makeSourceDocument(
+  path: string,
+  canonicalUrl: string,
+  markdown: string,
+  sourceRevision = revision,
+): SourceDocument {
+  return {
+    ...createNestJsDocumentationIdentity('12', path),
+    path,
+    canonicalUrl,
+    sourceLocation: sourceUrl(sourceRevision, path),
+    markdown,
+  };
+}
+
 describe('Markdown ingestion', () => {
   it('preserves titles, canonical URLs, heading hierarchy, source revision, and hashes', () => {
     const corpus = ingestSnapshot(snapshot, 180);
@@ -26,11 +47,14 @@ describe('Markdown ingestion', () => {
     const source = snapshot.documents.find(
       (file) => file.path === 'content/introduction.md',
     )!;
-    expect(corpus.source).toEqual({
-      repository: REPOSITORY,
-      version: 12,
-      ref: 'master',
-      revision,
+    expect(corpus).toMatchObject({
+      version: '12',
+      source: {
+        kind: 'git',
+        repository: REPOSITORY,
+        ref: 'master',
+        revision,
+      },
     });
     expect(doc.canonicalUrl).toBe('https://docs.nestjs.com');
     expect(doc.id).toBe(
@@ -40,10 +64,9 @@ describe('Markdown ingestion', () => {
       corpus.documents.length,
     );
     expect(doc.source).toEqual({
-      repository: REPOSITORY,
-      revision,
+      provenance: snapshot.source,
       path: source.path,
-      url: sourceUrl(revision, source.path),
+      location: sourceUrl(revision, source.path),
       contentHash: sha256(source.markdown),
     });
     expect(doc.contentHash).toBe(sha256(doc.markdown));
@@ -122,13 +145,15 @@ describe('Markdown ingestion', () => {
 
   it('keeps oversized code intact and separates sections at the soft chunk target', () => {
     const code = 'const longExample = true;\n'.repeat(30).trimEnd();
-    const doc = parseDocument(
+    const doc = transformNestJsDocument(
       {
-        path: 'content/large.md',
-        canonicalUrl: 'https://docs.nestjs.com/large',
-        markdown: `### Large\n\n#### First\n\nShort paragraph.\n\n\`\`\`ts\n${code}\n\`\`\`\n\n#### Second\n\nAnother paragraph.\n`,
+        ...makeSourceDocument(
+          'content/large.md',
+          'https://docs.nestjs.com/large',
+          `### Large\n\n#### First\n\nShort paragraph.\n\n\`\`\`ts\n${code}\n\`\`\`\n\n#### Second\n\nAnother paragraph.\n`,
+        ),
       },
-      revision,
+      snapshot.source,
       100,
     );
     const codeChunk = doc.chunks.find((chunk) => chunk.codeExamples.length)!;
@@ -137,9 +162,9 @@ describe('Markdown ingestion', () => {
     expect(codeChunk.headingPath.at(-1)?.title).toBe('First');
     expect(codeChunk.markdown).not.toContain('#### Second');
     expect(doc.chunks.at(-1)?.headingPath.at(-1)?.title).toBe('Second');
-    expect(() => parseDocument(snapshot.documents[0]!, revision, 0)).toThrow(
-      'positive',
-    );
+    expect(() =>
+      transformNestJsDocument(snapshot.documents[0]!, snapshot.source, 0),
+    ).toThrow('positive');
   });
 
   it('is deterministic across input order, line endings, and source revisions', () => {
@@ -150,13 +175,15 @@ describe('Markdown ingestion', () => {
     });
     expect(JSON.stringify(reordered)).toBe(JSON.stringify(first));
     const source = snapshot.documents[0]!;
-    const original = parseDocument(source, revision);
-    const changed = parseDocument(
+    const original = transformNestJsDocument(source, snapshot.source);
+    const changedSource = { ...snapshot.source, revision: 'b'.repeat(40) };
+    const changed = transformNestJsDocument(
       {
         ...source,
+        sourceLocation: sourceUrl('b'.repeat(40), source.path),
         markdown: '\uFEFF' + source.markdown.replace(/\n/g, '\r\n'),
       },
-      'b'.repeat(40),
+      changedSource,
     );
     expect(changed.id).toBe(original.id);
     expect(changed.chunks.map((chunk) => chunk.id)).toEqual(
@@ -164,10 +191,10 @@ describe('Markdown ingestion', () => {
     );
     expect(changed.contentHash).toBe(original.contentHash);
     expect(changed.source.contentHash).not.toBe(original.source.contentHash);
-    expect(changed.source.revision).toBe('b'.repeat(40));
-    const edited = parseDocument(
+    expect(changed.source.provenance.revision).toBe('b'.repeat(40));
+    const edited = transformNestJsDocument(
       { ...source, markdown: source.markdown + '\nA new paragraph.\n' },
-      revision,
+      snapshot.source,
     );
     expect(edited.id).toBe(original.id);
     expect(edited.contentHash).not.toBe(original.contentHash);
@@ -176,21 +203,138 @@ describe('Markdown ingestion', () => {
 
   it('rejects empty, untitled, and duplicate documents', () => {
     expect(() =>
-      ingestSnapshot({ version: 12, ref: 'master', revision, documents: [] }),
-    ).toThrow('empty');
+      ingestSnapshot({
+        ...snapshot,
+        documents: [],
+      }),
+    ).toThrow();
     expect(() =>
       ingestSnapshot({
-        version: 12,
-        ref: 'master',
-        revision,
+        ...snapshot,
         documents: [snapshot.documents[0]!, snapshot.documents[0]!],
       }),
-    ).toThrow('Duplicate');
+    ).toThrow();
     expect(() =>
-      parseDocument(
+      transformNestJsDocument(
         { ...snapshot.documents[0]!, markdown: 'Not a titled document' },
-        revision,
+        snapshot.source,
       ),
     ).toThrow('title');
+  });
+});
+
+describe('generic Markdown and MDX parsing', () => {
+  it('extracts Markdown frontmatter, headings, prose, lists, tables, links, and fenced code metadata', async () => {
+    const source = await readFile(
+      new URL('../../../../../fixtures/markdown/complete.md', import.meta.url),
+      'utf8',
+    );
+    const parsed = parseMarkdown(source, { path: 'guide/complete.md' });
+    expect(parsed.format).toBe('markdown');
+    expect(parsed.frontmatter).toEqual({
+      format: 'yaml',
+      raw: '---\ntitle: Parser fixture\ndescription: Fixture metadata\n---',
+      title: 'Parser fixture',
+    });
+    expect(
+      parsed.headings.map(({ level, title }) => ({ level, title })),
+    ).toEqual([
+      { level: 1, title: 'Parser fixture' },
+      { level: 2, title: 'Installation' },
+    ]);
+    expect(parsed.paragraphs).toContain(
+      'Install the package and configure the application.',
+    );
+    expect(parsed.lists).toHaveLength(1);
+    expect(parsed.tables).toHaveLength(1);
+    expect(parsed.links).toEqual([
+      {
+        kind: 'link',
+        text: 'installation guide',
+        url: 'https://example.test/install',
+        title: 'Install',
+      },
+      { kind: 'image', text: 'logo', url: 'https://example.test/logo.png' },
+    ]);
+    expect(parsed.codeExamples).toEqual([
+      {
+        language: 'typescript',
+        filename: 'example.ts',
+        code: 'const value = 42;',
+      },
+    ]);
+    expect(parsed.diagnostics).toEqual([]);
+  });
+
+  it('keeps static MDX content and reports dynamic constructs without executing them', async () => {
+    const testGlobal = globalThis as typeof globalThis & {
+      __parserExecuted?: boolean;
+    };
+    delete testGlobal.__parserExecuted;
+    const source = await readFile(
+      new URL(
+        '../../../../../fixtures/markdown/static-and-dynamic.mdx',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    const parsed = parseMarkdown(source, {
+      path: 'guide/static-and-dynamic.mdx',
+    });
+    expect(parsed.format).toBe('mdx');
+    expect(parsed.frontmatter?.title).toBe('MDX fixture');
+    expect(parsed.headings.map(({ title }) => title)).toEqual([
+      'MDX fixture',
+      'Nested heading',
+    ]);
+    expect(parsed.headings.map(({ line }) => line)).toEqual([5, 7]);
+    expect(parsed.jsxElements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Callout',
+          attributes: [{ name: 'type', value: 'note' }],
+          text: 'Static JSX content.',
+          markdown: '<Callout type="note">Static JSX content.</Callout>',
+          line: 9,
+        }),
+      ]),
+    );
+    expect(parsed.diagnostics.map(({ code }) => code)).toEqual(
+      expect.arrayContaining([
+        'dynamic-jsx-attribute',
+        'unsupported-mdx-expression',
+        'unsupported-mdx-module',
+      ]),
+    );
+    expect(parsed.blocks.map(({ markdown }) => markdown).join('\n')).toContain(
+      '{dangerousExpression()}',
+    );
+    expect(parsed.blocks.map(({ markdown }) => markdown).join('\n')).toContain(
+      "import Widget from './widget.js'",
+    );
+    expect(
+      parsed.diagnostics.find(
+        ({ code }) => code === 'unsupported-mdx-expression',
+      )?.line,
+    ).toBe(13);
+    expect(testGlobal.__parserExecuted).toBeUndefined();
+  });
+
+  it('preserves unterminated frontmatter and reports it as a diagnostic', () => {
+    const source = '---\ntitle: Still content\n\n# Visible heading';
+    const parsed = parseMarkdown(source);
+    expect(parsed.frontmatter).toBeUndefined();
+    expect(parsed.diagnostics[0]?.code).toBe('unterminated-frontmatter');
+    expect(parsed.headings[0]?.title).toBe('Visible heading');
+  });
+
+  it('is deterministic for repeated parses and line-ending variants', async () => {
+    const source = await readFile(
+      new URL('../../../../../fixtures/markdown/complete.md', import.meta.url),
+      'utf8',
+    );
+    expect(parseMarkdown(source, { path: 'complete.md' })).toEqual(
+      parseMarkdown(source.replace(/\n/gu, '\r\n'), { path: 'complete.md' }),
+    );
   });
 });

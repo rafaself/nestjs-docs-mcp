@@ -8,10 +8,10 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ingestSnapshot } from '../../../../../src/modules/documentation/application/services/documentation-ingestion.service.js';
-import { parseDocument } from '../../../../../src/modules/documentation/infrastructure/markdown/markdown-parser.js';
-import { writeDocumentationCorpus } from '../../../../../src/modules/documentation/infrastructure/filesystem/documentation-corpus-store.js';
-import type { DocumentationSnapshot } from '../../../../../src/modules/documentation/domain/documentation.types.js';
+import { ingestSnapshot } from '@nestjs-docs/documentation-engine/application/services/documentation-ingestion.service.js';
+import { transformNestJsDocument } from '../../../../../apps/docs-indexer/src/integrations/nestjs/nestjs-documentation-transformer.js';
+import { writeDocumentationCorpus } from '@nestjs-docs/documentation-engine/infrastructure/filesystem/documentation-corpus-store.js';
+import type { DocumentationSnapshot } from '@nestjs-docs/documentation-engine/domain/documentation.types.js';
 import { loadIngestionFixtures } from '../../../../fixtures/ingestion.fixtures.js';
 let snapshot: DocumentationSnapshot;
 beforeAll(async () => {
@@ -22,7 +22,7 @@ describe('corpus output', () => {
   it('writes reproducible JSON and cleans staging files if replacement fails', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'nestjs-ingestion-test-'));
     try {
-      const corpus = ingestSnapshot(snapshot, parseDocument);
+      const corpus = ingestSnapshot(snapshot, transformNestJsDocument);
       const output = join(directory, 'nested', 'documentation.json');
       await writeDocumentationCorpus(corpus, output);
       const first = await readFile(output, 'utf8');
