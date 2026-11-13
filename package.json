@@ -38,7 +38,7 @@
   },
   "scripts": {
     "build": "nest build",
-    "prepack": "npm run build && node scripts/verify-package.mjs",
+    "prepack": "npm run build && node scripts/verify-package.mjs && node scripts/verify-packed-package.mjs",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",

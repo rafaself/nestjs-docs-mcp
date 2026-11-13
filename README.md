@@ -29,7 +29,7 @@ node dist/main.js
 
 The server reads its index files beside the installed package, regardless of the working directory. A fresh checkout needs indexes before the server or `npm pack` can run. After the index-update workflow has published its first bundle, download `documentation-indexes.tar.gz` from the latest [`docs-index-*` GitHub prerelease](https://github.com/rafaself/nestjs-docs-mcp/releases), then extract it into the repository's `data/` directory.
 
-`npm pack` builds the application and verifies both indexes against the manifest, SQLite integrity checks, FTS5 integrity checks, and indexed version metadata. It fails if a required index is missing or invalid. The package contains the compiled server, both SQLite indexes, their source manifest, README, and license notices; it excludes tests and source documentation.
+`npm pack` builds the application, verifies both indexes against the manifest, runs SQLite and FTS5 integrity checks, and checks indexed version metadata. It then installs the generated tarball into a temporary production-only project and exercises both NestJS majors through a real stdio MCP client. The check confirms that searches and fetches work from the packaged indexes, stdout contains protocol messages, and shutdown is clean. It fails if a required index is missing or invalid. The package contains the compiled server, both SQLite indexes, their source manifest, README, and license notices; it excludes tests and source documentation.
 
 To rebuild indexes locally from the official sources instead of downloading the latest release bundle:
 
@@ -96,7 +96,7 @@ The npm executable is `nestjs-docs-mcp`; it launches the same compiled stdio ent
 
 ## Package maintenance
 
-The `prepack` check builds and validates a local tarball. Publishing is a separate manual action; this repository has no npm publish workflow or automatic release script. Documentation index updates are distributed through GitHub prerelease assets, not npm releases.
+The `prepack` check builds the package, validates the indexes, and tests the local tarball from a production-only install. It never publishes to npm. Publishing remains a separate manual action, and documentation index updates are distributed through GitHub prerelease assets, not npm releases.
 
 ## Third-party documentation content
 
