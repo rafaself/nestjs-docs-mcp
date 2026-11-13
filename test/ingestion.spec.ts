@@ -12,8 +12,10 @@ import { join } from 'node:path';
 import { parseDocument } from '../src/ingestion/markdown.js';
 import { ingestSnapshot, writeCorpus } from '../src/ingestion/pipeline.js';
 import {
+  DOCUMENTATION_SOURCES,
   downloadDocumentation,
   readContentAliases,
+  readHistoricalSourceIndex,
   readSourceIndex,
   REPOSITORY,
   sourceUrl,
@@ -40,6 +42,8 @@ beforeAll(async () => {
   ]);
   const entries = readSourceIndex(index, readContentAliases(aliases));
   snapshot = {
+    version: 12,
+    ref: 'master',
     revision,
     documents: await Promise.all(
       entries.map(async (entry) => ({
@@ -84,7 +88,7 @@ describe('source download', () => {
       );
     };
 
-    await expect(downloadDocumentation(fetcher)).resolves.toEqual(snapshot);
+    await expect(downloadDocumentation(12, fetcher)).resolves.toEqual(snapshot);
     expect(
       requests.filter((url) => url.endsWith('/commits/master')),
     ).toHaveLength(1);
@@ -95,12 +99,60 @@ describe('source download', () => {
     ]);
   });
 
+  it('downloads v11 Markdown from the pinned official source tree', async () => {
+    const revision11 = DOCUMENTATION_SOURCES[11].revision!;
+    const treeRevision = DOCUMENTATION_SOURCES[11].treeRevision!;
+    const paths = ['content/introduction.md', 'content/components.md'];
+    const tree = JSON.stringify({
+      tree: paths.map((path) => ({ path, type: 'blob' })),
+    });
+    const bodies = new Map([
+      ...snapshot.documents
+        .filter((file) => paths.includes(file.path))
+        .map((file): [string, string] => [file.path, file.markdown]),
+    ]);
+    const requests: string[] = [];
+    const fetcher: typeof fetch = (input) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      requests.push(url);
+      if (url.endsWith(`/git/trees/${treeRevision}?recursive=1`)) {
+        return Promise.resolve(new Response(tree));
+      }
+      const prefix = sourceUrl(revision11, '');
+      const body = bodies.get(url.slice(prefix.length));
+      return Promise.resolve(
+        new Response(body ?? 'Missing fixture', { status: body ? 200 : 404 }),
+      );
+    };
+
+    const result = await downloadDocumentation(11, fetcher);
+
+    expect(result).toMatchObject({
+      version: 11,
+      ref: '11.0.0',
+      revision: revision11,
+    });
+    expect(result.documents.map((document) => document.canonicalUrl)).toEqual([
+      'https://docs.nestjs.com/v11/providers',
+      'https://docs.nestjs.com/v11',
+    ]);
+    expect(requests.some((url) => url.includes('/commits/master'))).toBe(false);
+    expect(
+      requests.filter((url) => url.startsWith(sourceUrl(revision11, ''))),
+    ).toHaveLength(2);
+  });
+
   it.each([404, 429, 500])(
     'reports HTTP %i without ingesting an incomplete snapshot',
     async (status) => {
       const fetcher: typeof fetch = () =>
         Promise.resolve(new Response('Unavailable', { status }));
-      await expect(downloadDocumentation(fetcher)).rejects.toThrow(
+      await expect(downloadDocumentation(12, fetcher)).rejects.toThrow(
         `(${status})`,
       );
     },
@@ -109,7 +161,7 @@ describe('source download', () => {
   it('rejects invalid revisions before constructing raw source URLs', async () => {
     const fetcher: typeof fetch = () =>
       Promise.resolve(Response.json({ sha: '../master' }));
-    await expect(downloadDocumentation(fetcher)).rejects.toThrow();
+    await expect(downloadDocumentation(12, fetcher)).rejects.toThrow();
   });
 
   it('rejects a snapshot when a chapter download fails after valid metadata', async () => {
@@ -128,7 +180,7 @@ describe('source download', () => {
         return Promise.resolve(new Response(aliases));
       return Promise.resolve(new Response('Missing chapter', { status: 404 }));
     };
-    await expect(downloadDocumentation(fetcher)).rejects.toThrow(
+    await expect(downloadDocumentation(12, fetcher)).rejects.toThrow(
       'Download failed (404)',
     );
   });
@@ -136,7 +188,7 @@ describe('source download', () => {
   it('bounds individual download sizes', async () => {
     const fetcher: typeof fetch = () =>
       Promise.resolve(new Response('x'.repeat(4 * 1024 * 1024 + 1)));
-    await expect(downloadDocumentation(fetcher)).rejects.toThrow('exceeds');
+    await expect(downloadDocumentation(12, fetcher)).rejects.toThrow('exceeds');
   });
 
   it('fails closed when upstream alias syntax changes or contains path traversal', () => {
@@ -160,6 +212,31 @@ describe('source download', () => {
       ),
     ).toThrow();
   });
+
+  it('maps the historical official Markdown tree to versioned canonical URLs', () => {
+    const entries = readHistoricalSourceIndex(
+      JSON.stringify({
+        tree: [
+          { path: 'content/introduction.md', type: 'blob' },
+          { path: 'content/fundamentals/async-components.md', type: 'blob' },
+          { path: 'content/techniques/sql.md', type: 'blob' },
+          { path: 'content/ignored.txt', type: 'blob' },
+        ],
+      }),
+    );
+    expect(entries.map((entry) => entry.canonicalUrl)).toEqual([
+      'https://docs.nestjs.com/v11/fundamentals/async-providers',
+      'https://docs.nestjs.com/v11',
+      'https://docs.nestjs.com/v11/techniques/database',
+    ]);
+    expect(() =>
+      readHistoricalSourceIndex(
+        JSON.stringify({
+          tree: [{ path: 'content/../escape.md', type: 'blob' }],
+        }),
+      ),
+    ).toThrow('Unsafe');
+  });
 });
 
 describe('Markdown ingestion', () => {
@@ -173,12 +250,13 @@ describe('Markdown ingestion', () => {
     )!;
     expect(corpus.source).toEqual({
       repository: REPOSITORY,
+      version: 12,
       ref: 'master',
       revision,
     });
     expect(doc.canonicalUrl).toBe('https://docs.nestjs.com');
     expect(doc.id).toBe(
-      `nestjs-doc:${sha256(`${REPOSITORY}\0${source.path}`)}`,
+      `nestjs-doc:v12:${sha256(`${REPOSITORY}\0v12\0${source.path}`)}`,
     );
     expect(new Set(corpus.documents.map((document) => document.id)).size).toBe(
       corpus.documents.length,
@@ -319,9 +397,13 @@ describe('Markdown ingestion', () => {
   });
 
   it('rejects empty, untitled, and duplicate documents', () => {
-    expect(() => ingestSnapshot({ revision, documents: [] })).toThrow('empty');
+    expect(() =>
+      ingestSnapshot({ version: 12, ref: 'master', revision, documents: [] }),
+    ).toThrow('empty');
     expect(() =>
       ingestSnapshot({
+        version: 12,
+        ref: 'master',
         revision,
         documents: [snapshot.documents[0]!, snapshot.documents[0]!],
       }),

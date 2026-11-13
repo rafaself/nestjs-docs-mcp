@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { parseDocument } from './markdown.js';
-import { REPOSITORY, SOURCE_REF } from './source.js';
+import { REPOSITORY } from './source.js';
 import type { DocumentationCorpus, DocumentationSnapshot } from './types.js';
 
 export function ingestSnapshot(
@@ -18,13 +18,19 @@ export function ingestSnapshot(
       }
       paths.add(file.path);
       urls.add(file.canonicalUrl);
-      return parseDocument(file, snapshot.revision, maxChunkChars);
+      return parseDocument(
+        file,
+        snapshot.revision,
+        maxChunkChars,
+        snapshot.version,
+      );
     });
   if (!documents.length) throw new Error('Documentation snapshot is empty');
   return {
     source: {
       repository: REPOSITORY,
-      ref: SOURCE_REF,
+      version: snapshot.version,
+      ref: snapshot.ref,
       revision: snapshot.revision,
     },
     documents,

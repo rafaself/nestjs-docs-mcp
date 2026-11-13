@@ -26,6 +26,11 @@ export async function loadSearchCorpus() {
       ),
     })),
   );
-  const snapshot: DocumentationSnapshot = { revision, documents };
+  const snapshot: DocumentationSnapshot = {
+    version: 12,
+    ref: 'master',
+    revision,
+    documents,
+  };
   return ingestSnapshot(snapshot, 240);
 }

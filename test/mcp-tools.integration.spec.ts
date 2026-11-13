@@ -21,7 +21,7 @@ describe('documentation MCP tools', () => {
     const corpus = await loadSearchCorpus();
     documentId = corpus.documents[0]!.id;
 
-    const index = new DocumentationSearchService(databasePath);
+    const index = new DocumentationSearchService(databasePath, 12);
     index.indexCorpus(corpus);
     index.onModuleDestroy();
 
@@ -59,7 +59,10 @@ describe('documentation MCP tools', () => {
     expect(tools[1]?.inputSchema).toMatchObject({
       type: 'object',
       properties: {
-        documentId: { type: 'string', pattern: '^nestjs-doc:[0-9a-f]{64}$' },
+        documentId: {
+          type: 'string',
+          pattern: '^nestjs-doc:v(?:11|12):[0-9a-f]{64}$',
+        },
       },
     });
   });
@@ -95,6 +98,16 @@ describe('documentation MCP tools', () => {
     );
     expect(text).toContain('@Injectable()');
     expect(text).toContain('ExecutionContext');
+  });
+
+  it('rejects document IDs from another configured major', async () => {
+    const result = await client.callTool({
+      name: 'fetch_docs',
+      arguments: { documentId: `nestjs-doc:v11:${'0'.repeat(64)}` },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(resultText(result.content)).toContain('configured for v12');
   });
 
   it.each([

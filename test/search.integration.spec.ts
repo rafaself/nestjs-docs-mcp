@@ -17,7 +17,7 @@ describe('documentation search integration', () => {
     directory = await mkdtemp(join(tmpdir(), 'nestjs-docs-search-'));
     corpus = await loadSearchCorpus();
     app = await NestFactory.createApplicationContext(
-      DocumentationSearchModule.register(join(directory, 'search.sqlite')),
+      DocumentationSearchModule.register(join(directory, 'search.sqlite'), 12),
       { logger: false },
     );
     service = app.get(DocumentationSearchService);

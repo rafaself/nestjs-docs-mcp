@@ -1,16 +1,21 @@
 import { readFile } from 'node:fs/promises';
 import { NestFactory } from '@nestjs/core';
 import { parseArgs } from 'node:util';
+import {
+  documentationCorpusPath,
+  parseDocumentationVersion,
+} from '../documentation-version.js';
 import type { DocumentationCorpus } from '../ingestion/types.js';
 import { DocumentationSearchModule } from './search.module.js';
 import { DocumentationSearchService } from './search.service.js';
-import { DEFAULT_SEARCH_DATABASE_PATH } from './search.constants.js';
+import { searchDatabasePath } from './search.constants.js';
 
 async function main(): Promise<void> {
+  const version = parseDocumentationVersion(process.env.NESTJS_VERSION);
   const { values } = parseArgs({
     options: {
-      input: { type: 'string', default: 'data/documentation.json' },
-      database: { type: 'string', default: DEFAULT_SEARCH_DATABASE_PATH },
+      input: { type: 'string', default: documentationCorpusPath(version) },
+      database: { type: 'string', default: searchDatabasePath(version) },
     },
     allowPositionals: false,
   });
@@ -18,7 +23,7 @@ async function main(): Promise<void> {
     await readFile(values.input, 'utf8'),
   ) as DocumentationCorpus;
   const app = await NestFactory.createApplicationContext(
-    DocumentationSearchModule.register(values.database),
+    DocumentationSearchModule.register(values.database, version),
     { logger: false },
   );
   try {

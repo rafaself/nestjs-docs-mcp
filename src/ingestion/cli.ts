@@ -1,11 +1,16 @@
 import { parseArgs } from 'node:util';
+import {
+  documentationCorpusPath,
+  parseDocumentationVersion,
+} from '../documentation-version.js';
 import { downloadDocumentation } from './source.js';
 import { ingestSnapshot, writeCorpus } from './pipeline.js';
 
 async function main(): Promise<void> {
+  const version = parseDocumentationVersion(process.env.NESTJS_VERSION);
   const { values } = parseArgs({
     options: {
-      output: { type: 'string', default: 'data/documentation.json' },
+      output: { type: 'string', default: documentationCorpusPath(version) },
       'max-chars': { type: 'string', default: '4000' },
     },
     allowPositionals: false,
@@ -14,7 +19,7 @@ async function main(): Promise<void> {
   if (!Number.isSafeInteger(maxChunkChars) || maxChunkChars < 1) {
     throw new Error('--max-chars must be a positive integer');
   }
-  const snapshot = await downloadDocumentation();
+  const snapshot = await downloadDocumentation(version);
   const corpus = ingestSnapshot(snapshot, maxChunkChars);
   await writeCorpus(corpus, values.output);
   const chunks = corpus.documents.reduce(

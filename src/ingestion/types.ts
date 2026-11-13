@@ -1,3 +1,5 @@
+import type { NestJsDocumentationVersion } from '../documentation-version.js';
+
 export interface SourceDocument {
   path: string;
   canonicalUrl: string;
@@ -5,6 +7,8 @@ export interface SourceDocument {
 }
 
 export interface DocumentationSnapshot {
+  version: NestJsDocumentationVersion;
+  ref: string;
   revision: string;
   documents: SourceDocument[];
 }
@@ -52,6 +56,11 @@ export interface DocumentationDocument {
 }
 
 export interface DocumentationCorpus {
-  source: { repository: string; ref: string; revision: string };
+  source: {
+    repository: string;
+    version: NestJsDocumentationVersion;
+    ref: string;
+    revision: string;
+  };
   documents: DocumentationDocument[];
 }

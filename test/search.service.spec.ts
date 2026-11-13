@@ -8,7 +8,7 @@ describe('DocumentationSearchService', () => {
   let service: DocumentationSearchService;
 
   beforeEach(() => {
-    service = new DocumentationSearchService(':memory:');
+    service = new DocumentationSearchService(':memory:', 12);
   });
 
   afterEach(() => service.onModuleDestroy());
@@ -50,6 +50,8 @@ describe('DocumentationSearchService', () => {
 
   it('bounds fetched documentation content and marks truncation', () => {
     const corpus = ingestSnapshot({
+      version: 12,
+      ref: 'master',
       revision: 'e'.repeat(40),
       documents: [
         {
@@ -84,6 +86,8 @@ describe('DocumentationSearchService', () => {
   it('caps requested results at the maximum and replaces the previous index', () => {
     const revision = 'd'.repeat(40);
     const corpus = ingestSnapshot({
+      version: 12,
+      ref: 'master',
       revision,
       documents: Array.from({ length: 55 }, (_, index) => ({
         path: `content/guard-${index}.md`,
@@ -96,6 +100,8 @@ describe('DocumentationSearchService', () => {
     expect(service.search('guard', 500)).toHaveLength(50);
 
     const smallerCorpus = ingestSnapshot({
+      version: 12,
+      ref: 'master',
       revision,
       documents: [
         {

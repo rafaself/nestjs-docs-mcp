@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
 import { Lexer, walkTokens, type Token, type Tokens } from 'marked';
+import {
+  DEFAULT_DOCUMENTATION_VERSION,
+  type NestJsDocumentationVersion,
+} from '../documentation-version.js';
 import { REPOSITORY, sourceUrl } from './source.js';
 import type {
   CodeExample,
@@ -128,11 +132,12 @@ export function parseDocument(
   file: SourceDocument,
   revision: string,
   maxChunkChars = 4000,
+  version: NestJsDocumentationVersion = DEFAULT_DOCUMENTATION_VERSION,
 ): DocumentationDocument {
   if (!Number.isSafeInteger(maxChunkChars) || maxChunkChars < 1) {
     throw new Error('maxChunkChars must be a positive integer');
   }
-  const id = `nestjs-doc:${contentHash(`${REPOSITORY}\0${file.path}`)}`;
+  const id = `nestjs-doc:v${version}:${contentHash(`${REPOSITORY}\0v${version}\0${file.path}`)}`;
   const headings: Heading[] = [];
   const seen = new Set<string>();
   const sections: { headingPath: Heading[]; blocks: Block[] }[] = [];

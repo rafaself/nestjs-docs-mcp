@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { dirname, resolve } from 'node:path';
+import type { NestJsDocumentationVersion } from '../documentation-version.js';
 import {
   BadRequestException,
   Inject,
@@ -16,7 +17,11 @@ import {
   MAX_SEARCH_QUERY_TERMS,
   MAX_SEARCH_RESULT_LIMIT,
 } from './search.constants.js';
-import { SEARCH_DATABASE_PATH } from './search.tokens.js';
+import { documentationVersionFromId } from '../documentation-version.js';
+import {
+  DOCUMENTATION_VERSION,
+  SEARCH_DATABASE_PATH,
+} from './search.tokens.js';
 
 export interface DocumentationSearchResult {
   chunkId: string;
@@ -73,20 +78,57 @@ interface SearchChunk {
 @Injectable()
 export class DocumentationSearchService implements OnModuleDestroy {
   private readonly database: DatabaseSync;
+  readonly #documentationVersion: NestJsDocumentationVersion;
   private closed = false;
 
-  constructor(@Inject(SEARCH_DATABASE_PATH) databasePath: string) {
+  get documentationVersion(): NestJsDocumentationVersion {
+    return this.#documentationVersion;
+  }
+
+  constructor(
+    @Inject(SEARCH_DATABASE_PATH) databasePath: string,
+    @Inject(DOCUMENTATION_VERSION)
+    documentationVersion: NestJsDocumentationVersion,
+  ) {
+    this.#documentationVersion = documentationVersion;
     if (!databasePath) throw new Error('A SQLite database path is required');
     const path =
       databasePath === ':memory:' ? databasePath : resolve(databasePath);
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
 
     this.database = new DatabaseSync(path, { timeout: 5000 });
+    try {
+      this.initializeSchema();
+    } catch (error) {
+      this.database.close();
+      this.closed = true;
+      throw error;
+    }
+  }
+
+  private initializeSchema(): void {
+    const existing = this.database
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'documentation_search'",
+      )
+      .get();
+    if (existing) {
+      const columns = this.database
+        .prepare('PRAGMA table_info(documentation_search)')
+        .all()
+        .map((column) => column.name);
+      if (!columns.includes('documentation_version')) {
+        throw new Error(
+          'The SQLite index predates documentation version isolation. Rebuild it with npm run search:index for each NESTJS_VERSION.',
+        );
+      }
+    }
     this.database.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS documentation_search USING fts5(
         title,
         heading_path,
         markdown,
+        documentation_version UNINDEXED,
         chunk_id UNINDEXED,
         document_id UNINDEXED,
         canonical_url UNINDEXED,
@@ -98,25 +140,28 @@ export class DocumentationSearchService implements OnModuleDestroy {
 
   /** Replace the full-text index with chunks from one ingested corpus. */
   indexCorpus(corpus: DocumentationCorpus): number {
-    const chunks = validateCorpus(corpus);
-    const clear = this.database.prepare('DELETE FROM documentation_search');
+    const chunks = validateCorpus(corpus, this.documentationVersion);
+    const clear = this.database.prepare(
+      'DELETE FROM documentation_search WHERE documentation_version = ?',
+    );
     const insert = this.database.prepare(`
       INSERT INTO documentation_search (
-        title, heading_path, markdown, chunk_id, document_id,
-        canonical_url, source_revision
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        title, heading_path, markdown, documentation_version, chunk_id,
+        document_id, canonical_url, source_revision
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     let transactionStarted = false;
     try {
       this.database.exec('BEGIN IMMEDIATE');
       transactionStarted = true;
-      clear.run();
+      clear.run(this.documentationVersion);
       for (const chunk of chunks) {
         insert.run(
           chunk.title,
           chunk.headingPath.map((heading) => heading.title).join(' > '),
           chunk.markdown,
+          this.documentationVersion,
           chunk.id,
           chunk.documentId,
           chunk.canonicalUrl,
@@ -182,11 +227,16 @@ export class DocumentationSearchService implements OnModuleDestroy {
           bm25(documentation_search, 8.0, 4.0, 1.0) AS rank
         FROM documentation_search
         WHERE documentation_search MATCH ?
+          AND documentation_version = ?
         ORDER BY rank ASC, document_id ASC, chunk_id ASC
         LIMIT ?
       `,
       )
-      .all(matchExpression, Math.min(limit, MAX_SEARCH_RESULT_LIMIT))
+      .all(
+        matchExpression,
+        this.documentationVersion,
+        Math.min(limit, MAX_SEARCH_RESULT_LIMIT),
+      )
       .map(toSearchRow);
 
     return rows.map(({ rank, ...row }) => ({ ...row, score: -rank }));
@@ -202,6 +252,12 @@ export class DocumentationSearchService implements OnModuleDestroy {
         'Document ID must be a deterministic NestJS document ID',
       );
     }
+    const idVersion = documentationVersionFromId(documentId);
+    if (idVersion !== this.documentationVersion) {
+      throw new BadRequestException(
+        `Document ID belongs to NestJS v${idVersion}; this server is configured for v${this.documentationVersion}`,
+      );
+    }
 
     const rows = this.database
       .prepare(
@@ -210,11 +266,11 @@ export class DocumentationSearchService implements OnModuleDestroy {
           canonical_url AS canonicalUrl,
           source_revision AS sourceRevision, markdown
         FROM documentation_search
-        WHERE document_id = ?
+        WHERE document_id = ? AND documentation_version = ?
         ORDER BY rowid ASC
       `,
       )
-      .all(documentId)
+      .all(documentId, this.documentationVersion)
       .map(toDocumentRow);
     const first = rows[0];
     if (!first) return null;
@@ -274,14 +330,21 @@ export class DocumentationSearchService implements OnModuleDestroy {
   }
 }
 
-function validateCorpus(corpus: DocumentationCorpus): SearchChunk[] {
+function validateCorpus(
+  corpus: DocumentationCorpus,
+  expectedVersion: NestJsDocumentationVersion,
+): SearchChunk[] {
   if (
     !corpus ||
     typeof corpus !== 'object' ||
+    !corpus.source ||
+    corpus.source.version !== expectedVersion ||
     !Array.isArray(corpus.documents) ||
     corpus.documents.length === 0
   ) {
-    throw new Error('Documentation corpus must contain at least one document');
+    throw new Error(
+      `Documentation corpus must contain documents for NestJS v${expectedVersion}`,
+    );
   }
 
   const documentIds = new Set<string>();

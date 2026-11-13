@@ -1,15 +1,25 @@
 import { DynamicModule, Module } from '@nestjs/common';
-import { DEFAULT_SEARCH_DATABASE_PATH } from './search.constants.js';
+import type { NestJsDocumentationVersion } from '../documentation-version.js';
 import { DocumentationSearchService } from './search.service.js';
-import { SEARCH_DATABASE_PATH } from './search.tokens.js';
+import {
+  DOCUMENTATION_VERSION,
+  SEARCH_DATABASE_PATH,
+} from './search.tokens.js';
 
 @Module({})
 export class DocumentationSearchModule {
-  static register(databasePath = DEFAULT_SEARCH_DATABASE_PATH): DynamicModule {
+  static register(
+    databasePath: string,
+    documentationVersion: NestJsDocumentationVersion,
+  ): DynamicModule {
     return {
       module: DocumentationSearchModule,
       providers: [
         { provide: SEARCH_DATABASE_PATH, useValue: databasePath },
+        {
+          provide: DOCUMENTATION_VERSION,
+          useValue: documentationVersion,
+        },
         DocumentationSearchService,
       ],
       exports: [DocumentationSearchService],

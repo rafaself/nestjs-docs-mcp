@@ -42,7 +42,7 @@ export class DocumentationTools {
   @Tool({
     name: 'search_docs',
     description:
-      'Search the latest indexed NestJS documentation. Returns ranked section excerpts, document IDs, and official source URLs.',
+      'Searches the NestJS documentation major selected when this server starts. Returns ranked section excerpts, document IDs, and official source URLs.',
     inputSchema: searchDocsInput,
     annotations: {
       readOnlyHint: true,
@@ -58,22 +58,23 @@ export class DocumentationTools {
     );
     if (!results.length) return 'No matching NestJS documentation found.';
 
-    return results
-      .map((result, index) =>
+    return [
+      `Documentation major: v${this.documentation.documentationVersion}`,
+      ...results.map((result, index) =>
         [
           `### ${index + 1}. ${result.title}`,
           `Document ID: ${result.documentId}`,
           `Source: ${result.canonicalUrl}`,
           `Excerpt: ${result.excerpt}`,
         ].join('\n'),
-      )
-      .join('\n\n');
+      ),
+    ].join('\n\n');
   }
 
   @Tool({
     name: 'fetch_docs',
     description:
-      'Fetch a bounded section-aware excerpt of one latest NestJS documentation document by its deterministic document ID.',
+      'Fetch a bounded section-aware excerpt of one document from the configured NestJS documentation major by deterministic document ID.',
     inputSchema: fetchDocsInput,
     annotations: {
       readOnlyHint: true,
@@ -98,6 +99,7 @@ export class DocumentationTools {
 
     return [
       `# ${document.title}`,
+      `Documentation major: v${this.documentation.documentationVersion}`,
       `Document ID: ${document.documentId}`,
       `Source revision: ${document.sourceRevision}`,
       '',

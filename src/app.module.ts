@@ -1,15 +1,20 @@
 import { DynamicModule, Module } from '@nestjs/common';
 import { McpModule } from '@nestjs/mcp';
+import { parseDocumentationVersion } from './documentation-version.js';
 import { DocumentationTools } from './documentation.tools.js';
-import { DEFAULT_SEARCH_DATABASE_PATH } from './search/search.constants.js';
+import { searchDatabasePath } from './search/search.constants.js';
 import { DocumentationSearchModule } from './search/search.module.js';
 
 @Module({})
 export class AppModule {
-  static register(
-    databasePath = process.env.NESTJS_DOCS_SEARCH_DB ??
-      DEFAULT_SEARCH_DATABASE_PATH,
-  ): DynamicModule {
+  static register(databasePath?: string): DynamicModule {
+    const documentationVersion = parseDocumentationVersion(
+      process.env.NESTJS_VERSION,
+    );
+    const resolvedDatabasePath =
+      databasePath ??
+      process.env.NESTJS_DOCS_SEARCH_DB ??
+      searchDatabasePath(documentationVersion);
     return {
       module: AppModule,
       imports: [
@@ -18,7 +23,10 @@ export class AppModule {
           version: '0.0.1',
           path: false,
         }),
-        DocumentationSearchModule.register(databasePath),
+        DocumentationSearchModule.register(
+          resolvedDatabasePath,
+          documentationVersion,
+        ),
       ],
       providers: [DocumentationTools],
     };
