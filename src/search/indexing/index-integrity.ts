@@ -1,8 +1,12 @@
 import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { NestJsDocumentationVersion } from '../../documentation-version.js';
 import type { DocumentationCorpus } from '../../ingestion/types.js';
-import { REPOSITORY } from '../../ingestion/source.js';
+import { DOCUMENTATION_SOURCES, REPOSITORY } from '../../ingestion/source.js';
+import { validateRuntimeIndex } from '../runtime-index.js';
 
 const RAW_SOURCE = 'https://raw.githubusercontent.com/nestjs/docs.nestjs.com';
 const SITE = 'https://docs.nestjs.com';
@@ -17,14 +21,66 @@ interface ExpectedRow {
   sourceRevision: string;
 }
 
-/** Validate corpus hashes and require exact parity with its SQLite FTS rows. */
+/** Check SQLite and FTS5 without writing to the source database. */
+export function validateIndexIntegrity(
+  database: DatabaseSync,
+  version: NestJsDocumentationVersion,
+): ReturnType<typeof validateRuntimeIndex> {
+  const summary = validateRuntimeIndex(database, version);
+  const integrity = database.prepare('PRAGMA integrity_check').all();
+  if (integrity.length !== 1 || integrity[0]?.integrity_check !== 'ok') {
+    throw new Error(`NestJS v${version} SQLite integrity check failed`);
+  }
+
+  // FTS5's integrity check is a write command. Run it on a disposable copy,
+  // so validation cannot modify the index served by the MCP runtime.
+  const directory = mkdtempSync(join(tmpdir(), 'nestjs-docs-fts-check-'));
+  try {
+    const copyPath = join(directory, 'index.sqlite');
+    database.prepare('VACUUM main INTO ?').run(copyPath);
+    const copy = new DatabaseSync(copyPath);
+    try {
+      copy
+        .prepare(
+          "INSERT INTO documentation_search(documentation_search, rank) VALUES ('integrity-check', 1)",
+        )
+        .run();
+    } catch (error) {
+      throw new Error(`NestJS v${version} FTS5 integrity check failed`, {
+        cause: error,
+      });
+    } finally {
+      copy.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+  return summary;
+}
+
+/** Validate a generated corpus against its existing index. */
 export function validateDocumentationIndex(
   version: NestJsDocumentationVersion,
   corpus: DocumentationCorpus,
   databasePath: string,
 ): { documentCount: number; chunkCount: number } {
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  try {
+    validateIndexIntegrity(database, version);
+    return validateCorpusIndex(version, corpus, database);
+  } finally {
+    database.close();
+  }
+}
+
+/** Validate corpus hashes and require exact parity with its SQLite FTS rows. */
+export function validateCorpusIndex(
+  version: NestJsDocumentationVersion,
+  corpus: DocumentationCorpus,
+  database: DatabaseSync,
+): { documentCount: number; chunkCount: number } {
   const revision = corpus?.source?.revision;
-  const expectedRef = version === 11 ? '11.0.0' : 'master';
+  const expectedRef = DOCUMENTATION_SOURCES[version].ref;
   if (
     !corpus ||
     corpus.source?.repository !== REPOSITORY ||
@@ -98,89 +154,41 @@ export function validateDocumentationIndex(
     }
   }
 
-  const database = new DatabaseSync(databasePath);
-  try {
-    const integrity = database
-      .prepare('PRAGMA integrity_check')
-      .all()
-      .map((row) => row.integrity_check);
-    if (integrity.length !== 1 || integrity[0] !== 'ok') {
-      throw new Error(`NestJS v${version} SQLite integrity check failed`);
-    }
-
-    // FTS5 exposes its consistency check as an INSERT control command.
-    database.exec('BEGIN');
-    try {
-      database
-        .prepare(
-          "INSERT INTO documentation_search(documentation_search, rank) VALUES ('integrity-check', 1)",
-        )
-        .run();
-    } catch (error) {
-      if (database.isTransaction) {
-        try {
-          database.exec('ROLLBACK');
-        } catch (rollbackError) {
-          throw new AggregateError(
-            [error, rollbackError],
-            `NestJS v${version} FTS5 integrity check and rollback failed`,
-            { cause: rollbackError },
-          );
-        }
-      }
-      throw new Error(`NestJS v${version} FTS5 integrity check failed`, {
-        cause: error,
-      });
-    }
-    try {
-      database.exec('ROLLBACK');
-    } catch (error) {
-      throw new Error(
-        `NestJS v${version} FTS5 validation could not roll back`,
-        {
-          cause: error,
-        },
-      );
-    }
-
-    const actualRows = database
-      .prepare(
-        `
+  const actualRows = database
+    .prepare(
+      `
         SELECT chunk_id AS chunkId, document_id AS documentId, title,
           heading_path AS headingPath, markdown,
           canonical_url AS canonicalUrl, source_revision AS sourceRevision
         FROM documentation_search
         WHERE documentation_version = ?
       `,
-      )
-      .all(version);
-    if (actualRows.length !== expectedRows.size) {
+    )
+    .all(version);
+  if (actualRows.length !== expectedRows.size) {
+    throw new Error(
+      `NestJS v${version} SQLite row count does not match corpus`,
+    );
+  }
+
+  const seen = new Set<string>();
+  for (const row of actualRows) {
+    const expected = expectedRows.get(String(row.chunkId));
+    if (
+      !expected ||
+      seen.has(expected.chunkId) ||
+      row.documentId !== expected.documentId ||
+      row.title !== expected.title ||
+      row.headingPath !== expected.headingPath ||
+      row.markdown !== expected.markdown ||
+      row.canonicalUrl !== expected.canonicalUrl ||
+      row.sourceRevision !== expected.sourceRevision
+    ) {
       throw new Error(
-        `NestJS v${version} SQLite row count does not match corpus`,
+        `NestJS v${version} SQLite content does not match corpus`,
       );
     }
-
-    const seen = new Set<string>();
-    for (const row of actualRows) {
-      const expected = expectedRows.get(String(row.chunkId));
-      if (
-        !expected ||
-        seen.has(expected.chunkId) ||
-        row.documentId !== expected.documentId ||
-        row.title !== expected.title ||
-        row.headingPath !== expected.headingPath ||
-        row.markdown !== expected.markdown ||
-        row.canonicalUrl !== expected.canonicalUrl ||
-        row.sourceRevision !== expected.sourceRevision
-      ) {
-        throw new Error(
-          `NestJS v${version} SQLite content does not match corpus`,
-        );
-      }
-      seen.add(expected.chunkId);
-    }
-  } finally {
-    database.close();
+    seen.add(expected.chunkId);
   }
 
   return { documentCount: documentIds.size, chunkCount: expectedRows.size };

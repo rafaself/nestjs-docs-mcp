@@ -1,31 +1,20 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { NestJsDocumentationVersion } from '../documentation-version.js';
-
-const COLUMNS = [
-  'title',
-  'heading_path',
-  'markdown',
-  'documentation_version',
-  'chunk_id',
-  'document_id',
-  'canonical_url',
-  'source_revision',
-];
+import {
+  DOCUMENTATION_INDEX_COLUMNS,
+  DOCUMENTATION_INDEX_SCHEMA,
+} from './index-schema.js';
 
 /** Check an existing index without issuing any write or FTS control command. */
 export function validateRuntimeIndex(
   database: DatabaseSync,
   version: NestJsDocumentationVersion,
-): void {
+): { revision: string; documentCount: number; chunkCount: number } {
   const fail = (reason: string): never => {
     throw new Error(
       `Invalid NestJS v${version} documentation index: ${reason}`,
     );
   };
-  const integrity = database.prepare('PRAGMA integrity_check').all();
-  if (integrity.length !== 1 || integrity[0]?.integrity_check !== 'ok') {
-    fail('SQLite integrity check failed');
-  }
   const table = database
     .prepare(
       "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'documentation_search'",
@@ -43,20 +32,16 @@ export function validateRuntimeIndex(
     .prepare('PRAGMA table_info(documentation_search)')
     .all();
   if (
-    columns.length !== COLUMNS.length ||
-    columns.some((column, i) => column.name !== COLUMNS[i])
+    columns.length !== DOCUMENTATION_INDEX_COLUMNS.length ||
+    columns.some(
+      (column, i) =>
+        column.name !== DOCUMENTATION_INDEX_COLUMNS[i]?.split(' ')[0],
+    )
   ) {
     fail('FTS5 columns are missing or incompatible');
   }
-  const normalizedSchema = (table!.sql as string)
-    .toLowerCase()
-    .replace(/\s+/gu, ' ')
-    .replace(/\s*([(),=])\s*/gu, '$1');
-  if (
-    !/^create virtual table ["`[]?documentation_search["`\]]? using fts5\(title,heading_path,markdown,documentation_version unindexed,chunk_id unindexed,document_id unindexed,canonical_url unindexed,source_revision unindexed,tokenize='unicode61'\)$/u.test(
-      normalizedSchema,
-    )
-  ) {
+  const normalizedSchema = normalizeSchema(table!.sql as string);
+  if (normalizedSchema !== normalizeSchema(DOCUMENTATION_INDEX_SCHEMA)) {
     fail('FTS5 configuration is incompatible');
   }
   const metadata = database
@@ -77,6 +62,8 @@ export function validateRuntimeIndex(
   ) {
     fail('source revision is invalid or inconsistent');
   }
+  const documents = new Set<string>();
+  let chunkCount = 0;
   const invalidDocument = database
     .prepare('SELECT document_id FROM documentation_search')
     .iterate();
@@ -88,5 +75,23 @@ export function validateRuntimeIndex(
     ) {
       fail('document version metadata is invalid');
     }
+    documents.add(row.document_id as string);
+    chunkCount++;
   }
+  return {
+    revision: metadata[0]!.revision as string,
+    documentCount: documents.size,
+    chunkCount,
+  };
+}
+
+function normalizeSchema(sql: string): string {
+  return sql
+    .toLowerCase()
+    .replace(/\s+/gu, ' ')
+    .replace(/\s*([(),=])\s*/gu, '$1')
+    .replace(
+      /^(create virtual table )["`[]documentation_search["`\]]/u,
+      '$1documentation_search',
+    );
 }

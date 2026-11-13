@@ -115,4 +115,39 @@ describe('documentation index integrity validation', () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it('rejects unexpected majors in a corpus-matching index', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'nestjs-docs-mixed-'));
+    const databasePath = join(directory, 'documentation.sqlite');
+    const corpus = ingestSnapshot({
+      version: 12,
+      ref: 'master',
+      revision: 'a'.repeat(40),
+      documents: [
+        {
+          path: 'content/page.md',
+          canonicalUrl: 'https://docs.nestjs.com/page',
+          markdown: '# Page\n\nContent.',
+        },
+      ],
+    });
+    const writer = new DocumentationIndexWriter(databasePath, 12);
+    try {
+      writer.indexCorpus(corpus);
+      const db = new DatabaseSync(databasePath);
+      db.prepare(
+        `INSERT INTO documentation_search
+        (title, heading_path, markdown, documentation_version, chunk_id, document_id, canonical_url, source_revision)
+        SELECT title, heading_path, markdown, 11, chunk_id, document_id, canonical_url, source_revision
+        FROM documentation_search LIMIT 1`,
+      ).run();
+      db.close();
+      expect(() =>
+        validateDocumentationIndex(12, corpus, databasePath),
+      ).toThrow(/versions/u);
+    } finally {
+      writer.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });

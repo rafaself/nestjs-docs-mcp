@@ -4,15 +4,15 @@ import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DocumentationIndexWriter } from '../dist/search/indexing/index-writer.js';
 import { validateDocumentationIndex } from '../dist/search/indexing/index-integrity.js';
+import { SUPPORTED_DOCUMENTATION_VERSIONS } from '../dist/documentation-version.js';
 import {
   downloadDocumentation,
   resolveDocumentationSource,
+  REPOSITORY,
 } from '../dist/ingestion/source.js';
 import { ingestSnapshot, writeCorpus } from '../dist/ingestion/pipeline.js';
 
-const DOCUMENTATION_VERSIONS = [11, 12];
 const INDEX_PIPELINE_VERSION = 1;
-const REPOSITORY = 'https://github.com/nestjs/docs.nestjs.com';
 
 function argument(name, fallback) {
   const index = process.argv.indexOf(name);
@@ -35,7 +35,7 @@ async function main() {
   const versionEntries = {};
   let changed = !previous || !previous.isReusable;
 
-  for (const version of DOCUMENTATION_VERSIONS) {
+  for (const version of SUPPORTED_DOCUMENTATION_VERSIONS) {
     const key = String(version);
     const prefix = `documentation-v${version}`;
     const corpusPath = join(outputDirectory, `${prefix}.json`);
@@ -123,7 +123,7 @@ async function main() {
     changed,
     outputDirectory,
     versions: Object.fromEntries(
-      DOCUMENTATION_VERSIONS.map((version) => [
+      SUPPORTED_DOCUMENTATION_VERSIONS.map((version) => [
         version,
         {
           ref: versionEntries[String(version)].ref,
@@ -153,7 +153,7 @@ async function loadPreviousBundle(directory) {
     manifest.repository === REPOSITORY;
   if (!isReusable) return { manifest, isReusable: false };
 
-  for (const version of DOCUMENTATION_VERSIONS) {
+  for (const version of SUPPORTED_DOCUMENTATION_VERSIONS) {
     const key = String(version);
     const entry = manifest.versions?.[key];
     const prefix = `documentation-v${version}`;

@@ -2,32 +2,34 @@ import { createHash } from 'node:crypto';
 import { access, readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { SUPPORTED_DOCUMENTATION_VERSIONS } from '../dist/documentation-version.js';
+import { DOCUMENTATION_SOURCES, REPOSITORY } from '../dist/ingestion/source.js';
+import {
+  validateCorpusIndex,
+  validateIndexIntegrity,
+} from '../dist/search/indexing/index-integrity.js';
 
 const rootDirectory = fileURLToPath(new URL('../', import.meta.url));
-const dataDirectory = resolve(rootDirectory, 'data');
-const repository = 'https://github.com/nestjs/docs.nestjs.com';
-const supportedVersions = [
-  { version: 11, ref: '11.0.0' },
-  { version: 12, ref: 'master' },
-];
-
-async function main() {
+export async function verifyPackage(root = rootDirectory) {
+  const dataDirectory = resolve(root, 'data');
   const packageMetadata = JSON.parse(
-    await readFile(resolve(rootDirectory, 'package.json'), 'utf8'),
+    await readFile(resolve(root, 'package.json'), 'utf8'),
   );
   const requiredPackageFiles = [
     'dist/**',
-    'data/documentation-v11.sqlite',
-    'data/documentation-v12.sqlite',
+    ...SUPPORTED_DOCUMENTATION_VERSIONS.map(
+      (version) => `data/documentation-v${version}.sqlite`,
+    ),
     'data/manifest.json',
     'README.md',
     'LICENSE',
     'THIRD-PARTY-NOTICES.md',
-    'licenses/nestjs-docs-v11-LICENSE',
-    'licenses/nestjs-docs-v12-LICENSE',
+    ...SUPPORTED_DOCUMENTATION_VERSIONS.map(
+      (version) => `licenses/nestjs-docs-v${version}-LICENSE`,
+    ),
   ];
-  const executablePath = resolve(rootDirectory, 'dist/main.js');
+  const executablePath = resolve(root, 'dist/main.js');
   await requireFile(executablePath);
   if (
     packageMetadata.private === true ||
@@ -50,17 +52,21 @@ async function main() {
   if (
     manifest.formatVersion !== 1 ||
     manifest.indexPipelineVersion !== 1 ||
-    manifest.repository !== repository ||
-    !sameValues(Object.keys(manifest.versions ?? {}).sort(), ['11', '12'])
+    manifest.repository !== REPOSITORY ||
+    !sameValues(
+      Object.keys(manifest.versions ?? {}).sort(),
+      SUPPORTED_DOCUMENTATION_VERSIONS.map(String).sort(),
+    )
   ) {
     throw new Error('Documentation index manifest metadata is invalid');
   }
 
-  for (const { version, ref } of supportedVersions) {
+  for (const version of SUPPORTED_DOCUMENTATION_VERSIONS) {
+    const { ref } = DOCUMENTATION_SOURCES[version];
     const key = String(version);
     const entry = manifest.versions[key];
     const licensePath = resolve(
-      rootDirectory,
+      root,
       `licenses/nestjs-docs-v${version}-LICENSE`,
     );
     const databasePath = resolve(
@@ -93,61 +99,60 @@ async function main() {
       throw new Error(`NestJS v${version} index hash does not match manifest`);
     }
 
-    const database = new DatabaseSync(databasePath);
+    const database = new DatabaseSync(databasePath, { readOnly: true });
     try {
-      const integrity = database
-        .prepare('PRAGMA integrity_check')
+      const summary = validateIndexIntegrity(database, version);
+      const documentIds = database
+        .prepare('SELECT DISTINCT document_id AS id FROM documentation_search')
         .all()
-        .map((row) => row.integrity_check);
-      if (integrity.length !== 1 || integrity[0] !== 'ok') {
-        throw new Error(`NestJS v${version} SQLite integrity check failed`);
-      }
-
-      checkFtsIntegrity(database, version);
-      const columns = new Set(
-        database
-          .prepare('PRAGMA table_info(documentation_search)')
-          .all()
-          .map((row) => row.name),
-      );
+        .map((row) => row.id)
+        .sort();
       if (
-        ![
-          'documentation_version',
-          'document_id',
-          'source_revision',
-          'chunk_id',
-        ].every((column) => columns.has(column))
-      ) {
-        throw new Error(`NestJS v${version} index schema is incomplete`);
-      }
-
-      const summary = database
-        .prepare(
-          `
-          SELECT COUNT(*) AS chunkCount,
-            COUNT(DISTINCT document_id) AS documentCount,
-            COUNT(DISTINCT source_revision) AS revisionCount,
-            MIN(source_revision) AS revision
-          FROM documentation_search
-          WHERE documentation_version = ?
-        `,
-        )
-        .get(version);
-      const otherVersionRows = database
-        .prepare(
-          'SELECT COUNT(*) AS count FROM documentation_search WHERE documentation_version <> ?',
-        )
-        .get(version)?.count;
-      if (
-        summary?.chunkCount !== entry.chunkCount ||
+        summary.chunkCount !== entry.chunkCount ||
         summary.documentCount !== entry.documentCount ||
-        summary.revisionCount !== 1 ||
         summary.revision !== entry.revision ||
-        otherVersionRows !== 0
+        !sameValues(
+          documentIds,
+          Object.keys(entry.sourceContentHashes).sort(),
+        ) ||
+        !sameValues(
+          documentIds,
+          Object.keys(entry.normalizedContentHashes).sort(),
+        )
       ) {
         throw new Error(
           `NestJS v${version} index contents do not match its manifest`,
         );
+      }
+
+      // Corpus files accompany development and index bundles, but are not part
+      // of the published npm package. Verify their hashes and exact rows when present.
+      const corpusPath = resolve(
+        dataDirectory,
+        `documentation-v${version}.json`,
+      );
+      if (await fileExists(corpusPath)) {
+        if ((await hashFile(corpusPath)) !== entry.corpusSha256) {
+          throw new Error(
+            `NestJS v${version} corpus hash does not match manifest`,
+          );
+        }
+        const corpus = JSON.parse(await readFile(corpusPath, 'utf8'));
+        validateCorpusIndex(version, corpus, database);
+        if (
+          corpus.source.revision !== entry.revision ||
+          !corpus.documents.every(
+            (document) =>
+              entry.sourceContentHashes[document.id] ===
+                document.source.contentHash &&
+              entry.normalizedContentHashes[document.id] ===
+                document.contentHash,
+          )
+        ) {
+          throw new Error(
+            `NestJS v${version} corpus contents do not match its manifest`,
+          );
+        }
       }
     } finally {
       database.close();
@@ -159,31 +164,14 @@ async function main() {
   }
 }
 
-function checkFtsIntegrity(database, version) {
-  database.exec('BEGIN');
+async function fileExists(path) {
   try {
-    database
-      .prepare(
-        "INSERT INTO documentation_search(documentation_search, rank) VALUES ('integrity-check', 1)",
-      )
-      .run();
+    await access(path);
+    return true;
   } catch (error) {
-    if (database.isTransaction) {
-      try {
-        database.exec('ROLLBACK');
-      } catch (rollbackError) {
-        throw new AggregateError(
-          [error, rollbackError],
-          `NestJS v${version} FTS5 integrity check and rollback failed`,
-          { cause: rollbackError },
-        );
-      }
-    }
-    throw new Error(`NestJS v${version} FTS5 integrity check failed`, {
-      cause: error,
-    });
+    if (error?.code === 'ENOENT') return false;
+    throw error;
   }
-  database.exec('ROLLBACK');
 }
 
 async function requireFile(path) {
@@ -228,7 +216,12 @@ function sameValues(actual, expected) {
   );
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  verifyPackage().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
