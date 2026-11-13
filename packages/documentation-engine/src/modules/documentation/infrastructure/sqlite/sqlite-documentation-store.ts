@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { resolve } from 'node:path';
 import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
-import type { NestJsDocumentationVersion } from '../../domain/documentation-version.js';
+import type { DocumentationIndexRuntimeManifest } from '../../domain/documentation-index-manifest.schemas.js';
 import type {
   DocumentationRow,
   DocumentationSearchStore,
@@ -9,7 +9,7 @@ import type {
 } from '../../application/contracts/documentation-search-store.contract.js';
 import type { DocumentationSearchResult } from '../../application/contracts/documentation-reader.contract.js';
 import {
-  DOCUMENTATION_VERSION,
+  DOCUMENTATION_INDEX_MANIFEST,
   SEARCH_DATABASE_PATH,
 } from '../../application/contracts/documentation.tokens.js';
 import { MAX_SEARCH_RESULT_LIMIT } from '../../retrieval/search.constants.js';
@@ -24,8 +24,8 @@ export class SQLiteDocumentationStore
 
   constructor(
     @Inject(SEARCH_DATABASE_PATH) databasePath: string,
-    @Inject(DOCUMENTATION_VERSION)
-    readonly documentationVersion: NestJsDocumentationVersion,
+    @Inject(DOCUMENTATION_INDEX_MANIFEST)
+    readonly indexManifest: DocumentationIndexRuntimeManifest,
   ) {
     if (!databasePath) throw new Error('A SQLite database path is required');
     if (databasePath === ':memory:') {
@@ -36,7 +36,19 @@ export class SQLiteDocumentationStore
       timeout: 5000,
     });
     try {
-      validateRuntimeIndex(this.database, documentationVersion);
+      const summary = validateRuntimeIndex(
+        this.database,
+        indexManifest.documentation.version,
+      );
+      if (
+        summary.revision !== indexManifest.index.sourceRevision ||
+        summary.documentCount !== indexManifest.index.documentCount ||
+        summary.chunkCount !== indexManifest.index.chunkCount
+      ) {
+        throw new Error(
+          'Documentation index contents do not match the validated manifest',
+        );
+      }
     } catch (error) {
       this.database.close();
       this.closed = true;
@@ -59,13 +71,15 @@ export class SQLiteDocumentationStore
         FROM documentation_search
         WHERE documentation_search MATCH ?
           AND documentation_version = ?
-        ORDER BY rank ASC, document_id ASC, chunk_id ASC
+        ORDER BY rank ASC,
+          document_id COLLATE BINARY ASC,
+          chunk_id COLLATE BINARY ASC
         LIMIT ?
       `,
       )
       .all(
         expression,
-        this.documentationVersion,
+        this.indexManifest.documentation.version,
         Math.min(limit, MAX_SEARCH_RESULT_LIMIT),
       )
       .map(toSearchResult);
@@ -80,10 +94,10 @@ export class SQLiteDocumentationStore
           source_revision AS sourceRevision, markdown
         FROM documentation_search
         WHERE document_id = ? AND documentation_version = ?
-        ORDER BY rowid ASC
+        ORDER BY chunk_index ASC, chunk_id COLLATE BINARY ASC
       `,
       )
-      .all(documentId, this.documentationVersion)
+      .all(documentId, this.indexManifest.documentation.version)
       .map(toDocumentationRow);
   }
 
@@ -99,7 +113,7 @@ export class SQLiteDocumentationStore
         WHERE document_id = ? AND documentation_version = ? AND chunk_id = ?
       `,
       )
-      .get(documentId, this.documentationVersion, sectionId);
+      .get(documentId, this.indexManifest.documentation.version, sectionId);
     if (!row) return null;
     const reference = row as Record<string, unknown>;
     if (

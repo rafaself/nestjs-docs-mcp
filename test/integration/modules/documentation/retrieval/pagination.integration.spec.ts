@@ -1,28 +1,27 @@
 import { BadRequestException } from '@nestjs/common';
-import { ingestSnapshot } from '../../../../fixtures/ingestion.fixtures.js';
-import { MAX_FETCH_DOCUMENT_CHARS } from '../../../../../src/modules/documentation/retrieval/search.constants.js';
+import { ingestNestJsDocuments } from '../../../../fixtures/ingestion.fixtures.js';
+import { MAX_FETCH_DOCUMENT_CHARS } from '@nestjs-docs/documentation-engine/retrieval/search.constants.js';
 import { TestSearchIndex as DocumentationSearchService } from '../../../../fixtures/test-search-index.js';
 
 describe('DocumentationSearchService', () => {
   let service: DocumentationSearchService;
   beforeEach(() => {
-    service = new DocumentationSearchService(':memory:', 12);
+    service = new DocumentationSearchService(':memory:', '12');
   });
   afterEach(() => service.onModuleDestroy());
 
   it('bounds fetched documentation content and marks truncation', () => {
-    const corpus = ingestSnapshot({
-      version: 12,
-      ref: 'master',
-      revision: 'e'.repeat(40),
-      documents: [
+    const corpus = ingestNestJsDocuments(
+      '12',
+      [
         {
           path: 'content/large.md',
           canonicalUrl: 'https://docs.nestjs.com/large',
           markdown: `# Large document\n\n## Long section\n\n${'authorization '.repeat(3000)}`,
         },
       ],
-    });
+      'e'.repeat(40),
+    );
     service.indexCorpus(corpus);
 
     const document = service.fetchDocument(corpus.documents[0]!.id);
@@ -41,18 +40,17 @@ describe('DocumentationSearchService', () => {
 
   it('retrieves a matched section and continues without losing text', () => {
     const text = 'hello 🌍 authorization '.repeat(2500);
-    const corpus = ingestSnapshot({
-      version: 12,
-      ref: 'master',
-      revision: 'e'.repeat(40),
-      documents: [
+    const corpus = ingestNestJsDocuments(
+      '12',
+      [
         {
           path: 'content/large.md',
           canonicalUrl: 'https://docs.nestjs.com/large',
           markdown: `# Large document\n\n## Target\n\n${text}\n\n## Later\n\nunique-later-marker`,
         },
       ],
-    });
+      'e'.repeat(40),
+    );
     service.indexCorpus(corpus);
     const docId = corpus.documents[0]!.id;
     const hit = service.search('unique-later-marker')[0]!;
@@ -81,18 +79,17 @@ describe('DocumentationSearchService', () => {
     expect(() =>
       service.fetchDocument(docId, hit.chunkId, firstPage.nextCursor),
     ).toThrow(/cursor/u);
-    const updated = ingestSnapshot({
-      version: 12,
-      ref: 'master',
-      revision: 'f'.repeat(40),
-      documents: [
+    const updated = ingestNestJsDocuments(
+      '12',
+      [
         {
           path: 'content/large.md',
           canonicalUrl: 'https://docs.nestjs.com/large',
           markdown: `# Large document\n\n## Target\n\n${text} changed`,
         },
       ],
-    });
+      'f'.repeat(40),
+    );
     service.indexCorpus(updated);
     expect(() =>
       service.fetchDocument(docId, undefined, firstPage.nextCursor),
@@ -100,20 +97,17 @@ describe('DocumentationSearchService', () => {
   });
 
   it('reassembles all chunks belonging to the matched section', () => {
-    const corpus = ingestSnapshot(
-      {
-        version: 12,
-        ref: 'master',
-        revision: 'a'.repeat(40),
-        documents: [
-          {
-            path: 'content/sections.md',
-            canonicalUrl: 'https://docs.nestjs.com/sections',
-            markdown:
-              '# Sections\n\n## Target\n\nFirst paragraph contains the beginning.\n\nSecond paragraph contains targetneedle.\n\nThird paragraph contains the end.\n\n## Other\n\nUnrelated text.',
-          },
-        ],
-      },
+    const corpus = ingestNestJsDocuments(
+      '12',
+      [
+        {
+          path: 'content/sections.md',
+          canonicalUrl: 'https://docs.nestjs.com/sections',
+          markdown:
+            '# Sections\n\n## Target\n\nFirst paragraph contains the beginning.\n\nSecond paragraph contains targetneedle.\n\nThird paragraph contains the end.\n\n## Other\n\nUnrelated text.',
+        },
+      ],
+      'a'.repeat(40),
       45,
     );
     service.indexCorpus(corpus);
@@ -128,18 +122,17 @@ describe('DocumentationSearchService', () => {
   });
 
   it('continues a long section without losing text or splitting Unicode characters', () => {
-    const corpus = ingestSnapshot({
-      version: 12,
-      ref: 'master',
-      revision: 'b'.repeat(40),
-      documents: [
+    const corpus = ingestNestJsDocuments(
+      '12',
+      [
         {
           path: 'content/unicode.md',
           canonicalUrl: 'https://docs.nestjs.com/unicode',
           markdown: `# Unicode\n\n## Stream\n\n${'🌍'.repeat(20000)} endmarker`,
         },
       ],
-    });
+      'b'.repeat(40),
+    );
     service.indexCorpus(corpus);
     const hit = service.search('endmarker')[0]!;
     const expected = corpus.documents[0]!.chunks.filter(
@@ -167,18 +160,17 @@ describe('DocumentationSearchService', () => {
 
   it('rejects stale cursors when content changes without a revision change', () => {
     const makeCorpus = (text: string) =>
-      ingestSnapshot({
-        version: 12,
-        ref: 'master',
-        revision: 'c'.repeat(40),
-        documents: [
+      ingestNestJsDocuments(
+        '12',
+        [
           {
             path: 'content/page.md',
             canonicalUrl: 'https://docs.nestjs.com/page',
             markdown: `# Page\n\n${text}`,
           },
         ],
-      });
+        'c'.repeat(40),
+      );
     const first = makeCorpus('original '.repeat(3000));
     service.indexCorpus(first);
     const docId = first.documents[0]!.id;

@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { NestJsDocumentationVersion } from '../../domain/documentation-version.js';
+import type { DocumentationIdentity } from '../../domain/documentation.types.js';
+import type { DocumentationIndexRuntimeManifest } from '../../domain/documentation-index-manifest.schemas.js';
 import type {
   DocumentationReader,
   DocumentationSearchResult,
@@ -8,7 +9,7 @@ import type {
 import type { DocumentationSearchStore } from '../contracts/documentation-search-store.contract.js';
 import {
   DOCUMENTATION_SEARCH_STORE,
-  DOCUMENTATION_VERSION,
+  DOCUMENTATION_INDEX_MANIFEST,
 } from '../contracts/documentation.tokens.js';
 import {
   DEFAULT_SEARCH_RESULT_LIMIT,
@@ -25,9 +26,13 @@ export class DocumentationSearchService implements DocumentationReader {
   constructor(
     @Inject(DOCUMENTATION_SEARCH_STORE)
     private readonly store: DocumentationSearchStore,
-    @Inject(DOCUMENTATION_VERSION)
-    readonly documentationVersion: NestJsDocumentationVersion,
+    @Inject(DOCUMENTATION_INDEX_MANIFEST)
+    private readonly indexManifest: DocumentationIndexRuntimeManifest,
   ) {}
+
+  get documentation(): DocumentationIdentity {
+    return this.indexManifest.documentation;
+  }
 
   /** Search indexed sections. FTS operators are not accepted from user input. */
   search(
@@ -48,10 +53,7 @@ export class DocumentationSearchService implements DocumentationReader {
     sectionId?: string,
     cursor?: string,
   ): FetchedDocumentation | null {
-    const validatedDocumentId = validateDocumentId(
-      documentId,
-      this.documentationVersion,
-    );
+    const validatedDocumentId = validateDocumentId(documentId);
     const rows = this.store.fetchRows(validatedDocumentId);
     const first = rows[0];
     if (!first) return null;
@@ -68,6 +70,7 @@ export class DocumentationSearchService implements DocumentationReader {
     }
 
     return paginateDocumentation(
+      this.documentation,
       validatedDocumentId,
       selectedRows,
       sectionId,

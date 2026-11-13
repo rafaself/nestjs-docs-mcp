@@ -4,9 +4,10 @@ import { join } from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import type { INestApplicationContext } from '@nestjs/common';
 import { DocumentationModule } from '../../../../../src/modules/documentation/documentation.module.js';
-import { DocumentationSearchService } from '../../../../../src/modules/documentation/application/services/documentation-search.service.js';
+import { DocumentationSearchService } from '@nestjs-docs/documentation-engine/application/services/documentation-search.service.js';
 import { loadSearchCorpus } from '../../../../fixtures/search.fixtures.js';
-import { DocumentationIndexWriter } from '../../../../../src/modules/documentation/infrastructure/sqlite/indexing/index-writer.js';
+import { DocumentationIndexWriter } from '@nestjs-docs/documentation-engine/infrastructure/sqlite/indexing/index-writer.js';
+import { createTestIndexManifest } from '../../../../fixtures/mcp-server-index.js';
 
 describe('documentation search integration', () => {
   let directory: string;
@@ -19,12 +20,15 @@ describe('documentation search integration', () => {
     corpus = await loadSearchCorpus();
     const index = new DocumentationIndexWriter(
       join(directory, 'search.sqlite'),
-      12,
+      '12',
     );
     index.indexCorpus(corpus);
     index.close();
     app = await NestFactory.createApplicationContext(
-      DocumentationModule.register(join(directory, 'search.sqlite'), 12),
+      DocumentationModule.register(
+        join(directory, 'search.sqlite'),
+        createTestIndexManifest(join(directory, 'search.sqlite'), corpus),
+      ),
       { logger: false },
     );
     service = app.get(DocumentationSearchService);

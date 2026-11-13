@@ -1,12 +1,15 @@
 import { BadRequestException } from '@nestjs/common';
-import { buildSearchExpression } from '../../../../../src/modules/documentation/retrieval/search-input.js';
+import {
+  buildSearchExpression,
+  validateDocumentId,
+} from '@nestjs-docs/documentation-engine/retrieval/search-input.js';
 import { loadSearchCorpus } from '../../../../fixtures/search.fixtures.js';
 import { TestSearchIndex as DocumentationSearchService } from '../../../../fixtures/test-search-index.js';
 
 describe('DocumentationSearchService', () => {
   let service: DocumentationSearchService;
   beforeEach(() => {
-    service = new DocumentationSearchService(':memory:', 12);
+    service = new DocumentationSearchService(':memory:', '12');
   });
   afterEach(() => service.onModuleDestroy());
 
@@ -74,5 +77,16 @@ describe('DocumentationSearchService', () => {
     expect(() => service.search(42)).toThrow(BadRequestException);
     expect(() => service.search('x'.repeat(257))).toThrow(BadRequestException);
     expect(() => service.search('guard', 0)).toThrow(BadRequestException);
+  });
+
+  it('accepts opaque generic document IDs and rejects invalid identifiers', () => {
+    expect(validateDocumentId('article:release-candidate/1')).toBe(
+      'article:release-candidate/1',
+    );
+    expect(() => validateDocumentId('')).toThrow('non-empty string');
+    expect(() => validateDocumentId('bad\0id')).toThrow('non-empty string');
+    expect(() => validateDocumentId('x'.repeat(513))).toThrow(
+      'non-empty string',
+    );
   });
 });

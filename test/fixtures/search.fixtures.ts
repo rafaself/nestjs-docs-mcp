@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { ingestSnapshot } from './ingestion.fixtures.js';
-import type { DocumentationSnapshot } from '../../src/modules/documentation/domain/documentation.types.js';
+import { ingestSnapshot, makeNestJsSnapshot } from './ingestion.fixtures.js';
 
 const revision = 'c'.repeat(40);
 
@@ -26,11 +25,6 @@ export async function loadSearchCorpus() {
       ),
     })),
   );
-  const snapshot: DocumentationSnapshot = {
-    version: 12,
-    ref: 'master',
-    revision,
-    documents,
-  };
+  const snapshot = makeNestJsSnapshot('12', documents, revision);
   return ingestSnapshot(snapshot, 240);
 }

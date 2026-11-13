@@ -12,9 +12,11 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { ingestSnapshot } from '../../../../fixtures/ingestion.fixtures.js';
-import { DocumentationIndexWriter } from '../../../../../src/modules/documentation/infrastructure/sqlite/indexing/index-writer.js';
+import { ingestNestJsDocuments } from '../../../../fixtures/ingestion.fixtures.js';
+import { DocumentationIndexWriter } from '@nestjs-docs/documentation-engine/infrastructure/sqlite/indexing/index-writer.js';
 import { TestDocumentationSearchService as DocumentationSearchService } from '../../../../fixtures/test-documentation-search-service.js';
+import { createTestIndexManifest } from '../../../../fixtures/mcp-server-index.js';
+import { DocumentationIndexRuntimeManifestSchema } from '@nestjs-docs/documentation-engine/domain/documentation-index-manifest.schemas.js';
 
 const repositoryRoot = resolve('.');
 const verifier = resolve('scripts/ci/verify-package.mjs');
@@ -30,7 +32,7 @@ describe('package index verification', () => {
     versions: Record<
       string,
       {
-        version: number;
+        version: '11' | '12';
         ref: string;
         revision: string;
         documentCount: number;
@@ -42,18 +44,27 @@ describe('package index verification', () => {
       }
     >;
   };
-  const indexPath = (version: number) =>
+  const indexPath = (version: '11' | '12') =>
     join(root, 'data', `documentation-v${version}.sqlite`);
-  const corpusPath = (version: number) =>
+  const corpusPath = (version: '11' | '12') =>
     join(root, 'data', `documentation-v${version}.json`);
+  const runtimeManifestPath = (version: '11' | '12') =>
+    join(root, 'data', `documentation-v${version}.manifest.json`);
   const saveManifest = () =>
     writeFileSync(
       join(root, 'data', 'manifest.json'),
       JSON.stringify(manifest),
     );
-  const rehashIndex = (version: number) => {
-    manifest.versions[String(version)]!.indexSha256 = sha256(
-      readFileSync(indexPath(version)),
+  const rehashIndex = (version: '11' | '12') => {
+    const indexSha256 = sha256(readFileSync(indexPath(version)));
+    manifest.versions[String(version)]!.indexSha256 = indexSha256;
+    const runtimeManifest = DocumentationIndexRuntimeManifestSchema.parse(
+      JSON.parse(readFileSync(runtimeManifestPath(version), 'utf8')),
+    );
+    runtimeManifest.index.sha256 = indexSha256;
+    writeFileSync(
+      runtimeManifestPath(version),
+      JSON.stringify(runtimeManifest),
     );
     saveManifest();
   };
@@ -63,7 +74,7 @@ describe('package index verification', () => {
       [
         '--input-type=module',
         '-e',
-        'import { pathToFileURL } from "node:url"; const { verifyPackage } = await import(pathToFileURL(process.argv[1]).href); await verifyPackage(process.argv[2]);',
+        'import { pathToFileURL } from "node:url"; const verifier = process.argv[1]; const root = process.argv[2]; process.argv[1] = ""; const { verifyPackage } = await import(pathToFileURL(verifier).href); await verifyPackage(root);',
         verifier,
         root,
       ],
@@ -96,29 +107,38 @@ describe('package index verification', () => {
     );
     manifest = {
       formatVersion: 1,
-      indexPipelineVersion: 1,
+      indexPipelineVersion: 2,
       repository: 'https://github.com/nestjs/docs.nestjs.com',
       versions: {},
     };
-    for (const version of [11, 12] as const) {
-      const ref = version === 11 ? '11.0.0' : 'master';
-      const revision = (version === 11 ? 'a' : 'b').repeat(40);
-      const corpus = ingestSnapshot({
+    for (const version of ['11', '12'] as const) {
+      const ref = version === '11' ? '11.0.0' : 'master';
+      const revision = (version === '11' ? 'a' : 'b').repeat(40);
+      const corpus = ingestNestJsDocuments(
         version,
-        ref,
-        revision,
-        documents: [
+        [
           {
             path: 'content/page.md',
-            canonicalUrl: `https://docs.nestjs.com/${version === 11 ? 'v11/' : ''}page`,
+            canonicalUrl: `https://docs.nestjs.com/${version === '11' ? 'v11/' : ''}page`,
             markdown: '# Page\n\nSearchable content.',
           },
         ],
-      });
+        revision,
+      );
       writeFileSync(corpusPath(version), JSON.stringify(corpus));
       const writer = new DocumentationIndexWriter(indexPath(version), version);
       writer.indexCorpus(corpus);
       writer.close();
+      writeFileSync(
+        runtimeManifestPath(version),
+        JSON.stringify(
+          createTestIndexManifest(
+            indexPath(version),
+            corpus,
+            'https://github.com/nestjs/docs.nestjs.com',
+          ),
+        ),
+      );
       copyFileSync(
         join(repositoryRoot, `licenses/nestjs-docs-v${version}-LICENSE`),
         join(root, `licenses/nestjs-docs-v${version}-LICENSE`),
@@ -151,14 +171,15 @@ describe('package index verification', () => {
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
   it('accepts complete indexes without changing them and requires their corpora for packing', () => {
-    const service = new DocumentationSearchService(indexPath(11), 11);
+    const service = new DocumentationSearchService(indexPath('11'), '11');
     try {
-      const before = sha256(readFileSync(indexPath(11)));
-      expect(verify()).toMatchObject({ status: 0 });
-      expect(sha256(readFileSync(indexPath(11)))).toBe(before);
+      const before = sha256(readFileSync(indexPath('11')));
+      const verification = verify();
+      expect(verification).toMatchObject({ status: 0 });
+      expect(sha256(readFileSync(indexPath('11')))).toBe(before);
       expect(service.search('searchable')).toHaveLength(1);
-      unlinkSync(corpusPath(11));
-      unlinkSync(corpusPath(12));
+      unlinkSync(corpusPath('11'));
+      unlinkSync(corpusPath('12'));
       const result = verify();
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain('Required package input is missing:');
@@ -219,42 +240,44 @@ describe('package index verification', () => {
   it.each(['schema', 'version'] as const)(
     'rejects %s changes in both runtime and package verification',
     (change) => {
-      const database = new DatabaseSync(indexPath(11));
+      const database = new DatabaseSync(indexPath('11'));
       if (change === 'schema') {
         database.exec(
           'DROP TABLE documentation_search; CREATE VIRTUAL TABLE documentation_search USING fts5(title, markdown)',
         );
       } else {
         database.exec(
-          'UPDATE documentation_search SET documentation_version = 12',
+          "UPDATE documentation_search SET documentation_version = '12'",
         );
       }
       database.close();
-      rehashIndex(11);
-      expect(() => new DocumentationSearchService(indexPath(11), 11)).toThrow();
+      rehashIndex('11');
+      expect(
+        () => new DocumentationSearchService(indexPath('11'), '11'),
+      ).toThrow();
       const result = verify();
       expect(result.status).not.toBe(0);
-      expect(result.stderr).toMatch(/Invalid NestJS v11 documentation index/u);
+      expect(result.stderr).toMatch(/Invalid documentation v11 index/u);
     },
   );
 
   it('rejects an index that differs from its corpus even if the manifest hash is updated', () => {
-    const db = new DatabaseSync(indexPath(11));
+    const db = new DatabaseSync(indexPath('11'));
     db.exec("UPDATE documentation_search SET markdown = 'altered content'");
     db.close();
-    rehashIndex(11);
+    rehashIndex('11');
     const result = verify();
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('SQLite content does not match corpus');
   });
 
   it('rejects altered index and corpus files when their hashes no longer match the manifest', () => {
-    const db = new DatabaseSync(indexPath(11));
+    const db = new DatabaseSync(indexPath('11'));
     db.exec("UPDATE documentation_search SET markdown = 'altered content'");
     db.close();
     expect(verify().stderr).toContain('index hash does not match manifest');
-    rehashIndex(11);
-    writeFileSync(corpusPath(11), 'invalid corpus');
+    rehashIndex('11');
+    writeFileSync(corpusPath('11'), 'invalid corpus');
     expect(verify().stderr).toContain('corpus hash does not match manifest');
   });
 
@@ -283,10 +306,10 @@ describe('package index verification', () => {
   });
 
   it('rejects corrupt FTS content even when the database hash is updated', () => {
-    const db = new DatabaseSync(indexPath(11), { defensive: false });
+    const db = new DatabaseSync(indexPath('11'), { defensive: false });
     db.exec("UPDATE documentation_search_content SET c2 = 'corrupted content'");
     db.close();
-    rehashIndex(11);
+    rehashIndex('11');
     const result = verify();
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/integrity check failed|corrupt|checksum/iu);

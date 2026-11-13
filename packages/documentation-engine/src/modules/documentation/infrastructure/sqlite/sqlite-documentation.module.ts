@@ -1,8 +1,8 @@
 import { DynamicModule, Module } from '@nestjs/common';
-import type { NestJsDocumentationVersion } from '../../domain/documentation-version.js';
+import type { DocumentationIndexRuntimeManifest } from '../../domain/documentation-index-manifest.schemas.js';
 import {
   DOCUMENTATION_SEARCH_STORE,
-  DOCUMENTATION_VERSION,
+  DOCUMENTATION_INDEX_MANIFEST,
   SEARCH_DATABASE_PATH,
 } from '../../application/contracts/documentation.tokens.js';
 import { SQLiteDocumentationStore } from './sqlite-documentation-store.js';
@@ -11,20 +11,20 @@ import { SQLiteDocumentationStore } from './sqlite-documentation-store.js';
 export class SQLiteDocumentationModule {
   static register(
     databasePath: string,
-    documentationVersion: NestJsDocumentationVersion,
+    indexManifest: DocumentationIndexRuntimeManifest,
   ): DynamicModule {
     return {
       module: SQLiteDocumentationModule,
       providers: [
         { provide: SEARCH_DATABASE_PATH, useValue: databasePath },
-        { provide: DOCUMENTATION_VERSION, useValue: documentationVersion },
+        { provide: DOCUMENTATION_INDEX_MANIFEST, useValue: indexManifest },
         SQLiteDocumentationStore,
         {
           provide: DOCUMENTATION_SEARCH_STORE,
           useExisting: SQLiteDocumentationStore,
         },
       ],
-      exports: [DOCUMENTATION_SEARCH_STORE, DOCUMENTATION_VERSION],
+      exports: [DOCUMENTATION_SEARCH_STORE, DOCUMENTATION_INDEX_MANIFEST],
     };
   }
 }

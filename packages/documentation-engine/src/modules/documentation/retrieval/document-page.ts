@@ -5,9 +5,11 @@ import type {
   DocumentationSectionResult,
   FetchedDocumentation,
 } from '../application/contracts/documentation-reader.contract.js';
+import type { DocumentationIdentity } from '../domain/documentation.types.js';
 import type { DocumentationRow } from '../application/contracts/documentation-search-store.contract.js';
 
 export function paginateDocumentation(
+  documentation: DocumentationIdentity,
   documentId: string,
   selectedRows: DocumentationRow[],
   sectionId?: string,
@@ -19,6 +21,8 @@ export function paginateDocumentation(
   const scopeHash = createHash('sha256')
     .update(
       JSON.stringify([
+        documentation.id,
+        documentation.version,
         documentId,
         sectionId ?? null,
         first.sourceRevision,

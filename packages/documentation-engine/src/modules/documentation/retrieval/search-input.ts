@@ -1,9 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { z } from 'zod';
-import type { NestJsDocumentationVersion } from '../domain/documentation-version.js';
-import { documentationVersionFromId } from '../domain/documentation-version.js';
 import {
-  DOCUMENT_ID_PATTERN,
+  MAX_DOCUMENT_ID_LENGTH,
   MAX_SEARCH_QUERY_LENGTH,
   MAX_SEARCH_QUERY_TERMS,
 } from './search.constants.js';
@@ -19,7 +17,12 @@ const searchQuerySchema = z
     'Search query contains control characters',
   );
 const resultLimitSchema = z.number().int().positive().safe();
-const documentIdSchema = z.string().regex(DOCUMENT_ID_PATTERN);
+const documentIdSchema = z
+  .string()
+  .min(1)
+  .max(MAX_DOCUMENT_ID_LENGTH)
+  .refine((value) => value.trim().length > 0)
+  .refine((value) => !containsForbiddenControlCharacters(value));
 
 export function buildSearchExpression(query: unknown, limit: number): string {
   const parsed = searchQuerySchema.safeParse(query);
@@ -50,21 +53,10 @@ export function buildSearchExpression(query: unknown, limit: number): string {
   return `${phrase} OR ${alternatives}`;
 }
 
-export function validateDocumentId(
-  documentId: unknown,
-  version: NestJsDocumentationVersion,
-): string {
+export function validateDocumentId(documentId: unknown): string {
   const parsed = documentIdSchema.safeParse(documentId);
   if (!parsed.success)
-    throw new BadRequestException(
-      'Document ID must be a deterministic NestJS document ID',
-    );
-  const idVersion = documentationVersionFromId(parsed.data);
-  if (idVersion !== version) {
-    throw new BadRequestException(
-      `Document ID belongs to NestJS v${idVersion}; this server is configured for v${version}`,
-    );
-  }
+    throw new BadRequestException('Document ID must be a non-empty string');
   return parsed.data;
 }
 

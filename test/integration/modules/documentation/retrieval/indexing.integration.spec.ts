@@ -2,45 +2,43 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { ingestSnapshot } from '../../../../fixtures/ingestion.fixtures.js';
+import { ingestNestJsDocuments } from '../../../../fixtures/ingestion.fixtures.js';
 import { loadSearchCorpus } from '../../../../fixtures/search.fixtures.js';
 import { TestSearchIndex as DocumentationSearchService } from '../../../../fixtures/test-search-index.js';
 
 describe('DocumentationSearchService', () => {
   let service: DocumentationSearchService;
   beforeEach(() => {
-    service = new DocumentationSearchService(':memory:', 12);
+    service = new DocumentationSearchService(':memory:', '12');
   });
   afterEach(() => service.onModuleDestroy());
 
   it('caps requested results at the maximum and replaces the previous index', () => {
     const revision = 'd'.repeat(40);
-    const corpus = ingestSnapshot({
-      version: 12,
-      ref: 'master',
-      revision,
-      documents: Array.from({ length: 55 }, (_, index) => ({
+    const corpus = ingestNestJsDocuments(
+      '12',
+      Array.from({ length: 55 }, (_, index) => ({
         path: `content/guard-${index}.md`,
         canonicalUrl: `https://docs.nestjs.com/guard-${index}`,
         markdown: `# Guard ${index}\n\nA guard checks access.`,
       })),
-    });
+      revision,
+    );
 
     expect(service.indexCorpus(corpus)).toBe(55);
     expect(service.search('guard', 500)).toHaveLength(50);
 
-    const smallerCorpus = ingestSnapshot({
-      version: 12,
-      ref: 'master',
-      revision,
-      documents: [
+    const smallerCorpus = ingestNestJsDocuments(
+      '12',
+      [
         {
           path: 'content/replacement.md',
           canonicalUrl: 'https://docs.nestjs.com/replacement',
           markdown: '# Replacement\n\nA guard checks access.',
         },
       ],
-    });
+      revision,
+    );
     expect(service.indexCorpus(smallerCorpus)).toBe(1);
     expect(service.search('guard', 500)).toHaveLength(1);
   });
@@ -48,14 +46,12 @@ describe('DocumentationSearchService', () => {
   it('updates changed documents, removes deleted ones, and retains unchanged rows', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'nestjs-docs-sync-'));
     const databasePath = join(directory, 'documentation.sqlite');
-    const syncService = new DocumentationSearchService(databasePath, 12);
+    const syncService = new DocumentationSearchService(databasePath, '12');
     const database = new DatabaseSync(databasePath);
     try {
-      const initial = ingestSnapshot({
-        version: 12,
-        ref: 'master',
-        revision: 'a'.repeat(40),
-        documents: [
+      const initial = ingestNestJsDocuments(
+        '12',
+        [
           {
             path: 'content/changed.md',
             canonicalUrl: 'https://docs.nestjs.com/changed',
@@ -72,26 +68,22 @@ describe('DocumentationSearchService', () => {
             markdown: '# Stable\n\nkeepMarker appears here.',
           },
         ],
-      });
+        'a'.repeat(40),
+      );
       syncService.indexCorpus(initial);
       const initialRowId = (documentId: string): number =>
         database
           .prepare(
             'SELECT rowid AS rowId FROM documentation_search WHERE document_id = ? AND documentation_version = ?',
           )
-          .get(documentId, 12)!.rowId as number;
+          .get(documentId, '12')!.rowId as number;
       const stableRowId = initialRowId(
         initial.documents.find((document) => document.title === 'Stable')!.id,
       );
-      const changedRowId = initialRowId(
-        initial.documents.find((document) => document.title === 'Changed')!.id,
-      );
 
-      const updated = ingestSnapshot({
-        version: 12,
-        ref: 'master',
-        revision: 'b'.repeat(40),
-        documents: [
+      const updated = ingestNestJsDocuments(
+        '12',
+        [
           {
             path: 'content/changed.md',
             canonicalUrl: 'https://docs.nestjs.com/changed',
@@ -103,7 +95,8 @@ describe('DocumentationSearchService', () => {
             markdown: '# Stable\n\nkeepMarker appears here.',
           },
         ],
-      });
+        'b'.repeat(40),
+      );
       syncService.indexCorpus(updated);
 
       const stableId = updated.documents.find(
@@ -117,7 +110,13 @@ describe('DocumentationSearchService', () => {
       )!.id;
 
       expect(initialRowId(stableId)).toBe(stableRowId);
-      expect(initialRowId(changedId)).not.toBe(changedRowId);
+      expect(
+        database
+          .prepare(
+            'SELECT markdown FROM documentation_search WHERE document_id = ? AND documentation_version = ?',
+          )
+          .get(changedId, '12')?.markdown,
+      ).toContain('newmarker');
       expect(syncService.search('keepMarker')).toHaveLength(1);
       expect(syncService.search('oldmarker')).toEqual([]);
       expect(syncService.search('newmarker')).toHaveLength(1);
@@ -134,26 +133,25 @@ describe('DocumentationSearchService', () => {
   });
 
   it('preserves the previous index when a synchronization corpus is invalid', () => {
-    const corpus = ingestSnapshot({
-      version: 12,
-      ref: 'master',
-      revision: 'c'.repeat(40),
-      documents: [
+    const corpus = ingestNestJsDocuments(
+      '12',
+      [
         {
           path: 'content/stable.md',
           canonicalUrl: 'https://docs.nestjs.com/stable',
           markdown: '# Stable\n\npreserveMarker remains searchable.',
         },
       ],
-    });
+      'c'.repeat(40),
+    );
     service.indexCorpus(corpus);
     const invalidCorpus = {
       ...corpus,
-      source: { ...corpus.source, version: 11 as const },
+      version: '11',
     };
 
     expect(() => service.indexCorpus(invalidCorpus)).toThrow(
-      'Documentation corpus must contain documents for NestJS v12',
+      'Documentation corpus must contain documents for version "12"',
     );
     expect(service.search('preserveMarker')).toHaveLength(1);
     expect(service.fetchDocument(corpus.documents[0]!.id)).not.toBeNull();
@@ -183,40 +181,38 @@ describe('DocumentationSearchService', () => {
   it('rolls back a failed document update without dropping the previous content', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'nestjs-docs-failed-sync-'));
     const databasePath = join(directory, 'documentation.sqlite');
-    const syncService = new DocumentationSearchService(databasePath, 12);
+    const syncService = new DocumentationSearchService(databasePath, '12');
     const database = (syncService as unknown as { database: DatabaseSync })
       .database;
     try {
-      const initial = ingestSnapshot({
-        version: 12,
-        ref: 'master',
-        revision: 'd'.repeat(40),
-        documents: [
+      const initial = ingestNestJsDocuments(
+        '12',
+        [
           {
             path: 'content/stable.md',
             canonicalUrl: 'https://docs.nestjs.com/stable',
             markdown: '# Stable\n\npreviousMarker stays searchable.',
           },
         ],
-      });
+        'd'.repeat(40),
+      );
       syncService.indexCorpus(initial);
       const pageCount = Number(
         database.prepare('PRAGMA page_count').get()?.page_count,
       );
       database.exec(`PRAGMA max_page_count = ${pageCount}`);
 
-      const updated = ingestSnapshot({
-        version: 12,
-        ref: 'master',
-        revision: 'e'.repeat(40),
-        documents: [
+      const updated = ingestNestJsDocuments(
+        '12',
+        [
           {
             path: 'content/stable.md',
             canonicalUrl: 'https://docs.nestjs.com/stable',
             markdown: `# Stable\n\n${'triggerFailureMarker '.repeat(50000)}`,
           },
         ],
-      });
+        'e'.repeat(40),
+      );
 
       expect(() => syncService.indexCorpus(updated)).toThrow(
         /database or disk is full/u,
