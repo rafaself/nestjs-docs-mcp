@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import { ingestSnapshot } from '../../src/ingestion/pipeline.js';
-import type { DocumentationSnapshot } from '../../src/ingestion/types.js';
+import { ingestSnapshot } from './ingestion.fixtures.js';
+import type { DocumentationSnapshot } from '../../src/modules/documentation/domain/documentation.types.js';
 
 const revision = 'c'.repeat(40);
 

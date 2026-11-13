@@ -78,12 +78,12 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$HAS_PREVIOUS" == "true" ]]; then
-            node scripts/synchronize-documentation-indexes.mjs \
+            node scripts/release/synchronize-documentation-indexes.mjs \
               --output "$WORK_DIR/next" \
               --previous "$WORK_DIR/previous" \
               --result-file "$WORK_DIR/result.json"
           else
-            node scripts/synchronize-documentation-indexes.mjs \
+            node scripts/release/synchronize-documentation-indexes.mjs \
               --output "$WORK_DIR/next" \
               --result-file "$WORK_DIR/result.json"
           fi

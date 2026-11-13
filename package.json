@@ -4,8 +4,8 @@
   "description": "A local stdio and HTTP MCP server for NestJS v11 and v12 documentation.",
   "type": "module",
   "bin": {
-    "nestjs-docs-mcp": "./dist/stdio.js",
-    "nestjs-docs-mcp-http": "./dist/main.js"
+    "nestjs-docs-mcp": "./dist/apps/mcp-server/bootstrap/stdio.js",
+    "nestjs-docs-mcp-http": "./dist/apps/mcp-server/bootstrap/http.js"
   },
   "license": "MIT",
   "repository": {
@@ -40,13 +40,13 @@
   },
   "scripts": {
     "build": "nest build",
-    "prepack": "npm run build && node scripts/verify-package.mjs && node scripts/verify-packed-package.mjs",
+    "prepack": "npm run build && node scripts/ci/verify-package.mjs && node scripts/ci/verify-packed-package.mjs",
     "start": "nest start",
     "start:dev": "nest start --watch",
-    "start:prod": "node dist/main.js",
-    "start:stdio": "node dist/stdio.js",
-    "docs:ingest": "npm run build && node dist/ingestion/cli.js",
-    "search:index": "npm run build && node dist/search/indexing/index.cli.js",
+    "start:prod": "node dist/apps/mcp-server/bootstrap/http.js",
+    "start:stdio": "node dist/apps/mcp-server/bootstrap/stdio.js",
+    "docs:ingest": "npm run build && node dist/apps/docs-indexer/cli.js ingest",
+    "search:index": "npm run build && node dist/apps/docs-indexer/cli.js index",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "npm run lint -- --fix",
@@ -56,7 +56,7 @@
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watchAll",
     "test:cov": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --runInBand",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
-    "search:evaluate": "npm run build && node scripts/evaluate-search.mjs"
+    "search:evaluate": "npm run build && node scripts/evaluation/evaluate-search.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.4.0",

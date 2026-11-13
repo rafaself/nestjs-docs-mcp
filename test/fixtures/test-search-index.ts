@@ -2,9 +2,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { ingestSnapshot } from '../../src/ingestion/pipeline.js';
-import { DocumentationIndexWriter } from '../../src/search/indexing/index-writer.js';
-import { DocumentationSearchService } from '../../src/search/search.service.js';
+import { ingestSnapshot } from './ingestion.fixtures.js';
+import { DocumentationIndexWriter } from '../../src/modules/documentation/infrastructure/sqlite/indexing/index-writer.js';
+import { TestDocumentationSearchService as DocumentationSearchService } from './test-documentation-search-service.js';
 
 /** Test fixture that creates a real index before opening the read-only reader. */
 export class TestSearchIndex {

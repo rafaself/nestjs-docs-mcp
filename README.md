@@ -50,7 +50,7 @@ Before the first automated bundle is available, generate the package bundle from
 set -euo pipefail
 bundle_dir="$(mktemp -d)"
 trap 'rm -r "$bundle_dir"' EXIT
-node scripts/synchronize-documentation-indexes.mjs --output "$bundle_dir/indexes"
+node scripts/release/synchronize-documentation-indexes.mjs --output "$bundle_dir/indexes"
 mkdir -p data
 cp "$bundle_dir/indexes/documentation-v11.json" \
   "$bundle_dir/indexes/documentation-v11.sqlite" \
@@ -83,7 +83,7 @@ For source development, point Codex to the compiled stdio entry point and choose
 ```toml
 [mcp_servers.nestjs-docs-local]
 command = "node"
-args = ["/absolute/path/to/nestjs-docs-mcp/dist/stdio.js"]
+args = ["/absolute/path/to/nestjs-docs-mcp/dist/apps/mcp-server/bootstrap/stdio.js"]
 
 [mcp_servers.nestjs-docs-local.env]
 NESTJS_VERSION = "11"
@@ -97,7 +97,7 @@ Codex desktop, CLI, and IDE extension share the local MCP configuration. Refresh
 
 ## Run from a source checkout
 
-After downloading the index bundle as described above, run `npm ci` and `npm run build`. Start stdio with `node dist/stdio.js` or `npm run start:stdio`; start HTTP with `node dist/main.js` or `npm run start:prod`. Use the direct stdio Node command in MCP client configurations to avoid npm banners on stdout. `npm run start:dev` rebuilds and restarts the HTTP entry point; its compiler output makes it unsuitable as an MCP client command.
+After downloading the index bundle as described above, run `npm ci` and `npm run build`. Start stdio with `node dist/apps/mcp-server/bootstrap/stdio.js` or `npm run start:stdio`; start HTTP with `node dist/apps/mcp-server/bootstrap/http.js` or `npm run start:prod`. Use the direct stdio Node command in MCP client configurations to avoid npm banners on stdout. `npm run start:dev` rebuilds and restarts the HTTP entry point; its compiler output makes it unsuitable as an MCP client command.
 
 The npm executable is `nestjs-docs-mcp`; it launches the compiled stdio entry point. Stdout is reserved for MCP protocol messages. Nest startup logs and errors go to stderr through `McpStdioLogger`. Closing stdin ends the MCP connection and closes the application context. Both entries close cleanly on SIGINT and SIGTERM.
 
@@ -178,7 +178,7 @@ These are three separate freshness points:
 
 For local development, download one complete `documentation-indexes.tar.gz` from the latest `docs-index-*` prerelease and extract its five files into the checkout's `data/` directory as a set. Do not copy an individual database or manifest from a different release. Set `NESTJS_VERSION` before starting the MCP process to choose which local index it opens.
 
-When the ingestion or SQLite index format changes, increment `INDEX_PIPELINE_VERSION` in `scripts/synchronize-documentation-indexes.mjs` to force a rebuild from the official sources.
+When the ingestion or SQLite index format changes, increment `INDEX_PIPELINE_VERSION` in `scripts/release/synchronize-documentation-indexes.mjs` to force a rebuild from the official sources.
 
 ## Checks
 
@@ -194,15 +194,16 @@ TypeScript is pinned to the latest compatible 6.0 patch line because the current
 
 ## Structure
 
-- `src/main.ts`: loopback Streamable HTTP entry point.
-- `src/stdio.ts`: standalone application context, stdio transport, and shutdown handling.
-- `src/app.module.ts`: root module and MCP server registration.
-- `src/mcp/`: read-only search and fetch MCP tools.
-- `src/ingestion/`: independent downloader, Markdown parser/chunker, corpus writer, and CLI.
-- `src/search/`: SQLite FTS5 search and retrieval, with index synchronization, validation, and the CLI in `src/search/indexing/`.
-- `test/ingestion/` and `test/fixtures/`: offline ingestion coverage and shared fixtures.
-- `test/search/`: search, indexing, pagination, and version-isolation coverage.
-- `test/mcp/`: MCP tool integration and stdio process lifecycle tests.
+- `src/apps/mcp-server/`: separate HTTP and stdio bootstraps and MCP process configuration.
+- `src/apps/docs-indexer/`: indexing and ingestion CLI commands.
+- `src/modules/documentation/domain/`: supported versions and documentation corpus types.
+- `src/modules/documentation/application/`: ingestion and search use cases plus reader/store contracts.
+- `src/modules/documentation/infrastructure/`: GitHub source retrieval, Markdown parsing, corpus files, and SQLite indexing/runtime persistence.
+- `src/modules/documentation/retrieval/`: query validation and bounded document pagination.
+- `src/modules/documentation/mcp/`: tool contracts, thin tool adapters, response presenters, and MCP module composition.
+- `src/shared/config/`: package metadata shared across runtime and package verification.
+- `scripts/ci/`, `scripts/evaluation/`, and `scripts/release/`: package checks, search evaluation, and index synchronization.
+- `test/unit/`, `test/integration/`, and `test/e2e/`: coverage organized by verification boundary; `test/fixtures/` contains shared offline inputs.
 
 ## License
 
