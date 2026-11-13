@@ -11,16 +11,20 @@ export class AppModule {
     const documentationVersion = parseDocumentationVersion(
       process.env.NESTJS_VERSION,
     );
+
     const resolvedDatabasePath =
       databasePath ??
       process.env.NESTJS_DOCS_SEARCH_DB ??
       searchDatabasePath(documentationVersion);
+
     return {
       module: AppModule,
       imports: [
         McpModule.forRoot({
           name: 'nestjs-docs-mcp',
           version: '0.0.1',
+          instructions:
+            'Search the documentation version selected for this server; the version is fixed at startup. Use search_docs first, then fetch_docs with the returned IDs for more detail. Continue truncated results with the same IDs and returned cursor. Ground answers in the returned content and cite its URL and source revision; these indexes are snapshots, not live documentation.',
           path: false,
         }),
         DocumentationSearchModule.register(
