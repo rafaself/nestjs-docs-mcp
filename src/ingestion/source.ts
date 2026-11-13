@@ -291,9 +291,9 @@ export async function downloadDocumentation(
   }
   const documents = new Array<SourceDocument>(entries.length);
   let next = 0;
-  let failure: Error | undefined;
+  const failures: Error[] = [];
   const worker = async (): Promise<void> => {
-    while (!failure && next < entries.length) {
+    while (failures.length === 0 && next < entries.length) {
       const index = next++;
       const entry = entries[index]!;
       try {
@@ -305,11 +305,20 @@ export async function downloadDocumentation(
           ),
         };
       } catch (error) {
-        failure = error instanceof Error ? error : new Error('Download failed');
+        failures.push(
+          error instanceof Error
+            ? error
+            : new Error('Download failed', { cause: error }),
+        );
       }
     }
   };
   await Promise.all(Array.from({ length: 4 }, worker));
-  if (failure) throw failure;
+  if (failures.length === 1) throw failures[0]!;
+  if (failures.length > 1)
+    throw new AggregateError(
+      failures,
+      `Multiple documentation downloads failed: ${failures[0]!.message}`,
+    );
   return { version, ref: source.ref, revision, documents };
 }

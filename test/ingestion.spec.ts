@@ -99,6 +99,67 @@ describe('source download', () => {
     ]);
   });
 
+  it('preserves failures from concurrent documentation downloads', async () => {
+    const failures = [
+      new Error('first failure'),
+      new Error('second failure'),
+      new Error('third failure'),
+    ];
+    let failedDocuments = 0;
+    const fetcher: typeof fetch = (input) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (url.endsWith('/commits/master'))
+        return Promise.resolve(Response.json({ sha: revision }));
+      if (url.endsWith('/src/app/shared/nav/nav-items.ts'))
+        return Promise.resolve(new Response(index));
+      if (url.endsWith('/tools/generate-llms-txt.ts'))
+        return Promise.resolve(new Response(aliases));
+      return Promise.reject(failures[failedDocuments++]!);
+    };
+    try {
+      await downloadDocumentation(12, fetcher);
+      throw new Error('Expected download to fail');
+    } catch (error) {
+      expect(error).toBeInstanceOf(AggregateError);
+      expect((error as AggregateError).errors).toEqual(failures);
+    }
+  });
+
+  it('preserves the original cause of a non-Error download failure', async () => {
+    const failure = { reason: 'network interrupted' };
+    let failed = false;
+    const fetcher: typeof fetch = (input) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (url.endsWith('/commits/master'))
+        return Promise.resolve(Response.json({ sha: revision }));
+      if (url.endsWith('/src/app/shared/nav/nav-items.ts'))
+        return Promise.resolve(new Response(index));
+      if (url.endsWith('/tools/generate-llms-txt.ts'))
+        return Promise.resolve(new Response(aliases));
+      if (!failed) {
+        failed = true;
+        // The fetch contract can be violated by an external implementation.
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+        return Promise.reject(failure);
+      }
+      return Promise.resolve(new Response('# Documentation'));
+    };
+    await expect(downloadDocumentation(12, fetcher)).rejects.toMatchObject({
+      message: 'Download failed',
+      cause: failure,
+    });
+  });
+
   it('downloads v11 Markdown from the pinned official source tree', async () => {
     const revision11 = 'd'.repeat(40);
     const treeRevision = 'e'.repeat(40);
