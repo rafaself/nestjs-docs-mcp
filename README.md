@@ -75,6 +75,7 @@ command = "nestjs-docs-mcp"
 
 [mcp_servers.nestjs-docs.env]
 NESTJS_VERSION = "12"
+# DEBUG = "1" # optional MCP call timing logs
 ```
 
 For source development, point Codex to the compiled stdio entry point and choose the major in its environment:
@@ -89,6 +90,8 @@ NESTJS_VERSION = "11"
 ```
 
 The stdio entry point uses the client's stdin and stdout and does not start an HTTP listener. The separate HTTP entry point serves the same tools at `/mcp`, binds only to `127.0.0.1`, and defaults to port 3000; set `PORT` to choose another local port. `McpModule` also restricts accepted Host headers to localhost addresses. Its read-only tools are `search_docs` (natural-language or identifier query, optional limit 1–10) and `fetch_docs` (bounded Markdown for a deterministic document ID). Version selection stays in the local process environment, outside model-controlled tool arguments. The default is v12; v11 uses the archived official source described below.
+
+Set `DEBUG=1` in the process environment to register the MCP timing interceptor at startup. It logs the call kind, name, outcome, and elapsed time without logging inputs or results. In stdio mode, these messages go to stderr so stdout remains reserved for MCP protocol messages.
 
 Codex desktop, CLI, and IDE extension share the local MCP configuration. Refresh an already-running local client after adding the server.
 
