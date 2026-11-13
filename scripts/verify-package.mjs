@@ -29,17 +29,22 @@ export async function verifyPackage(root = rootDirectory) {
       (version) => `licenses/nestjs-docs-v${version}-LICENSE`,
     ),
   ];
-  const executablePath = resolve(root, 'dist/main.js');
-  await requireFile(executablePath);
+  const httpEntryPath = resolve(root, 'dist/main.js');
+  const executablePath = resolve(root, 'dist/stdio.js');
+  await Promise.all([requireFile(httpEntryPath), requireFile(executablePath)]);
+  const [httpEntry, stdioEntry] = await Promise.all([
+    readFile(httpEntryPath, 'utf8'),
+    readFile(executablePath, 'utf8'),
+  ]);
   if (
     packageMetadata.private === true ||
-    packageMetadata.bin?.['nestjs-docs-mcp'] !== './dist/main.js' ||
+    packageMetadata.bin?.['nestjs-docs-mcp'] !== './dist/stdio.js' ||
+    packageMetadata.bin?.['nestjs-docs-mcp-http'] !== './dist/main.js' ||
     requiredPackageFiles.some(
       (path) => !packageMetadata.files?.includes(path),
     ) ||
-    !(await readFile(executablePath, 'utf8')).startsWith(
-      '#!/usr/bin/env node\n',
-    )
+    !httpEntry.startsWith('#!/usr/bin/env node\n') ||
+    !stdioEntry.startsWith('#!/usr/bin/env node\n')
   ) {
     throw new Error(
       'npm package metadata or executable entry point is invalid',

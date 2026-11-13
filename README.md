@@ -2,7 +2,7 @@
 
 A standalone, community-maintained NestJS documentation MCP server using the official [`@nestjs/mcp`](https://docs.nestjs.com/mcp/overview) package. This project is independent and is not affiliated with, endorsed by, or an official product of NestJS or its maintainers.
 
-The server runs locally over [stdio](https://docs.nestjs.com/mcp/transports) and exposes two read-only tools: `search_docs` finds relevant sections, and `fetch_docs` retrieves a document by its deterministic ID. Documentation ingestion and search indexing run as separate commands. Tool arguments do not select a documentation version.
+The server supports local [stdio and Streamable HTTP](https://docs.nestjs.com/mcp/transports) entry points and exposes two read-only tools: `search_docs` finds relevant sections, and `fetch_docs` retrieves a document by its deterministic ID. The `nestjs-docs-mcp` executable uses stdio; the HTTP entry point listens on loopback at `http://127.0.0.1:3000/mcp` by default. Documentation ingestion and search indexing run as separate commands. Tool arguments do not select a documentation version.
 
 ## Requirements
 
@@ -16,7 +16,7 @@ npm install --global nestjs-docs-mcp
 nestjs-docs-mcp
 ```
 
-This installation command will be usable after the package is manually published to npm. Set `NESTJS_VERSION=11` to select v11; the default is v12. Each npm package version is a fixed snapshot of the server and both SQLite indexes. The npm version identifies the package release; `data/manifest.json` records the upstream source ref and commit for each documentation major. A later GitHub index release does not change an already installed package, and the server never downloads updates at startup. This repository does not publish the package automatically.
+`nestjs-docs-mcp` starts the stdio server for MCP clients. The package also provides `nestjs-docs-mcp-http` to start the loopback HTTP server. This installation will be usable after the package is manually published to npm. Set `NESTJS_VERSION=11` to select v11; the default is v12. Each npm package version is a fixed snapshot of the server and both SQLite indexes. The npm version identifies the package release; `data/manifest.json` records the upstream source ref and commit for each documentation major. A later GitHub index release does not change an already installed package, and the server never downloads updates at startup. This repository does not publish the package automatically.
 
 ## Local development
 
@@ -24,12 +24,14 @@ This installation command will be usable after the package is manually published
 nvm use
 npm ci
 npm run build
-node dist/main.js
+npm run start:stdio
+# Or start the HTTP endpoint:
+npm run start:prod
 ```
 
 The server reads its index files beside the installed package, regardless of the working directory. A fresh checkout needs indexes before the server or `npm pack` can run. After the index-update workflow has published its first bundle, download `documentation-indexes.tar.gz` from the latest [`docs-index-*` GitHub prerelease](https://github.com/rafaself/nestjs-docs-mcp/releases), then extract it into the repository's `data/` directory.
 
-`npm pack` builds the application and requires a complete index bundle in `data/`: both corpus JSON files, both SQLite indexes, and their matching manifest. It validates corpus hashes and exact corpus-to-index row parity, SQLite and FTS5 integrity, index hashes, and version/revision metadata before packing. The corpus files are used for this check but excluded from the npm tarball. The packed-package check then installs the generated tarball into a temporary production-only project and exercises both NestJS majors through a real stdio MCP client. It confirms that searches and fetches work from the packaged indexes, stdout contains protocol messages, and shutdown is clean. The package contains the compiled server, both SQLite indexes, their source manifest, README, and license notices; it excludes tests and source documentation.
+`npm pack` builds the application and requires a complete index bundle in `data/`: both corpus JSON files, both SQLite indexes, and their matching manifest. It validates corpus hashes and exact corpus-to-index row parity, SQLite and FTS5 integrity, index hashes, and version/revision metadata before packing. The corpus files are used for this check but excluded from the npm tarball. The packed-package check then installs the generated tarball into a temporary production-only project and exercises both NestJS majors through the stdio executable. It confirms that searches and fetches work from the packaged indexes, stdout contains protocol messages, and shutdown is clean. The tarball exposes stdio as `nestjs-docs-mcp` and loopback HTTP as `nestjs-docs-mcp-http`; it includes both entry points, both SQLite indexes, their source manifest, README, and license notices, while excluding tests and source documentation.
 
 To rebuild indexes locally from the official sources instead of downloading the latest release bundle:
 
@@ -75,26 +77,26 @@ command = "nestjs-docs-mcp"
 NESTJS_VERSION = "12"
 ```
 
-For source development, point Codex to the compiled entry point and choose the major in its environment:
+For source development, point Codex to the compiled stdio entry point and choose the major in its environment:
 
 ```toml
 [mcp_servers.nestjs-docs-local]
 command = "node"
-args = ["/absolute/path/to/nestjs-docs-mcp/dist/main.js"]
+args = ["/absolute/path/to/nestjs-docs-mcp/dist/stdio.js"]
 
 [mcp_servers.nestjs-docs-local.env]
 NESTJS_VERSION = "11"
 ```
 
-The MCP server uses stdio and does not start an HTTP listener. Its read-only tools are `search_docs` (natural-language or identifier query, optional limit 1–10) and `fetch_docs` (bounded Markdown for a deterministic document ID). Version selection stays in the local process environment, outside model-controlled tool arguments. The default is v12; v11 uses the archived official source described below.
+The stdio entry point uses the client's stdin and stdout and does not start an HTTP listener. The separate HTTP entry point serves the same tools at `/mcp`, binds only to `127.0.0.1`, and defaults to port 3000; set `PORT` to choose another local port. `McpModule` also restricts accepted Host headers to localhost addresses. Its read-only tools are `search_docs` (natural-language or identifier query, optional limit 1–10) and `fetch_docs` (bounded Markdown for a deterministic document ID). Version selection stays in the local process environment, outside model-controlled tool arguments. The default is v12; v11 uses the archived official source described below.
 
 Codex desktop, CLI, and IDE extension share the local MCP configuration. Refresh an already-running local client after adding the server.
 
 ## Run from a source checkout
 
-After downloading the index bundle as described above, `npm ci` and `npm run build`, then launch with `node dist/main.js` or `npm run --silent start:prod`. Use the direct Node command in MCP client configurations to avoid npm banners on stdout. `npm run start:dev` rebuilds and restarts on changes; its compiler output makes it unsuitable as an MCP client command.
+After downloading the index bundle as described above, run `npm ci` and `npm run build`. Start stdio with `node dist/stdio.js` or `npm run start:stdio`; start HTTP with `node dist/main.js` or `npm run start:prod`. Use the direct stdio Node command in MCP client configurations to avoid npm banners on stdout. `npm run start:dev` rebuilds and restarts the HTTP entry point; its compiler output makes it unsuitable as an MCP client command.
 
-The npm executable is `nestjs-docs-mcp`; it launches the same compiled stdio entry point. Stdout is reserved for MCP protocol messages. Nest startup logs and errors go to stderr through `McpStdioLogger`. Closing stdin ends the MCP connection and closes the application context. SIGINT and SIGTERM trigger Nest shutdown hooks.
+The npm executable is `nestjs-docs-mcp`; it launches the compiled stdio entry point. Stdout is reserved for MCP protocol messages. Nest startup logs and errors go to stderr through `McpStdioLogger`. Closing stdin ends the MCP connection and closes the application context. Both entries close cleanly on SIGINT and SIGTERM.
 
 ## Package maintenance
 
@@ -189,7 +191,8 @@ TypeScript is pinned to the latest compatible 6.0 patch line because the current
 
 ## Structure
 
-- `src/main.ts`: standalone application context, stdio transport, and shutdown handling.
+- `src/main.ts`: loopback Streamable HTTP entry point.
+- `src/stdio.ts`: standalone application context, stdio transport, and shutdown handling.
 - `src/app.module.ts`: root module and MCP server registration.
 - `src/mcp/`: read-only search and fetch MCP tools.
 - `src/ingestion/`: independent downloader, Markdown parser/chunker, corpus writer, and CLI.

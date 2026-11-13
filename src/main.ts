@@ -1,26 +1,23 @@
 #!/usr/bin/env node
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { McpStdioLogger, McpStdioServer } from '@nestjs/mcp';
 import { AppModule } from './app.module.js';
 
-const logger = new McpStdioLogger('Bootstrap');
-
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.createApplicationContext(AppModule.register(), {
-    logger,
+  const app = await NestFactory.create(AppModule.register(), {
     abortOnError: false,
   });
 
   app.enableShutdownHooks(['SIGINT', 'SIGTERM']);
   try {
-    await app.get(McpStdioServer).listen();
-  } finally {
+    await app.listen(process.env.PORT ?? 3000, '127.0.0.1');
+  } catch (error) {
     await app.close();
+    throw error;
   }
 }
 
 bootstrap().catch((error: unknown) => {
-  logger.error(error);
+  console.error('Failed to start NestJS documentation MCP over HTTP:', error);
   process.exitCode = 1;
 });

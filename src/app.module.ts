@@ -25,7 +25,9 @@ export class AppModule {
           version: '0.0.1',
           instructions:
             'Search the documentation version selected for this server; the version is fixed at startup. Use search_docs first, then fetch_docs with the returned IDs for more detail. Continue truncated results with the same IDs and returned cursor. Ground answers in the returned content and cite its URL and source revision; these indexes are snapshots, not live documentation.',
-          path: false,
+          http: {
+            allowedHosts: ['localhost', '127.0.0.1', '[::1]'],
+          },
         }),
         DocumentationSearchModule.register(
           resolvedDatabasePath,

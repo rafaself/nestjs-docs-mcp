@@ -1,10 +1,11 @@
 {
   "name": "nestjs-docs-mcp",
   "version": "0.0.1",
-  "description": "A local stdio MCP server for searching NestJS v11 and v12 documentation.",
+  "description": "A local stdio and HTTP MCP server for NestJS v11 and v12 documentation.",
   "type": "module",
   "bin": {
-    "nestjs-docs-mcp": "./dist/main.js"
+    "nestjs-docs-mcp": "./dist/stdio.js",
+    "nestjs-docs-mcp-http": "./dist/main.js"
   },
   "license": "MIT",
   "repository": {
@@ -20,7 +21,8 @@
     "mcp",
     "model-context-protocol",
     "documentation",
-    "stdio"
+    "stdio",
+    "streamable-http"
   ],
   "files": [
     "dist/**",
@@ -42,6 +44,7 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
+    "start:stdio": "node dist/stdio.js",
     "docs:ingest": "npm run build && node dist/ingestion/cli.js",
     "search:index": "npm run build && node dist/search/indexing/index.cli.js",
     "typecheck": "tsc --noEmit",
@@ -60,6 +63,7 @@
     "@nestjs/common": "^12.5.0",
     "@nestjs/core": "^12.5.0",
     "@nestjs/mcp": "^0.0.4",
+    "@nestjs/platform-express": "^12.5.0",
     "json5": "^2.2.3",
     "marked": "^18.2.0",
     "reflect-metadata": "^0.2.2",

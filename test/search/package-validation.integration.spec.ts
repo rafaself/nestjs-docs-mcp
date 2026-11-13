@@ -78,7 +78,11 @@ describe('package index verification', () => {
       join(repositoryRoot, 'package.json'),
       join(root, 'package.json'),
     );
-    writeFileSync(join(root, 'dist', 'main.js'), '#!/usr/bin/env node\n');
+    writeFileSync(
+      join(root, 'dist', 'main.js'),
+      '#!/usr/bin/env node\nHTTP entry point\n',
+    );
+    writeFileSync(join(root, 'dist', 'stdio.js'), '#!/usr/bin/env node\n');
     manifest = {
       formatVersion: 1,
       indexPipelineVersion: 1,

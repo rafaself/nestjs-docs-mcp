@@ -4,7 +4,7 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 const entryPoint = fileURLToPath(
-  new URL('../../dist/main.js', import.meta.url),
+  new URL('../../dist/stdio.js', import.meta.url),
 );
 
 describe('MCP stdio server', () => {
