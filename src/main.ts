@@ -6,7 +6,7 @@ import { AppModule } from './app.module.js';
 const logger = new McpStdioLogger('Bootstrap');
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.createApplicationContext(AppModule, {
+  const app = await NestFactory.createApplicationContext(AppModule.register(), {
     logger,
     abortOnError: false,
   });

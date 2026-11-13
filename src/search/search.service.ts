@@ -10,6 +10,8 @@ import {
 import type { DocumentationCorpus } from '../ingestion/types.js';
 import {
   DEFAULT_SEARCH_RESULT_LIMIT,
+  DOCUMENT_ID_PATTERN,
+  MAX_FETCH_DOCUMENT_CHARS,
   MAX_SEARCH_QUERY_LENGTH,
   MAX_SEARCH_QUERY_TERMS,
   MAX_SEARCH_RESULT_LIMIT,
@@ -26,6 +28,20 @@ export interface DocumentationSearchResult {
   score: number;
 }
 
+export interface DocumentationSectionResult {
+  headingPath: string;
+  canonicalUrl: string;
+  markdown: string;
+}
+
+export interface FetchedDocumentation {
+  documentId: string;
+  title: string;
+  sourceRevision: string;
+  sections: DocumentationSectionResult[];
+  truncated: boolean;
+}
+
 interface SearchRow {
   chunkId: string;
   documentId: string;
@@ -34,6 +50,14 @@ interface SearchRow {
   sourceRevision: string;
   excerpt: string;
   rank: number;
+}
+
+interface DocumentRow {
+  title: string;
+  headingPath: string;
+  canonicalUrl: string;
+  sourceRevision: string;
+  markdown: string;
 }
 
 interface SearchChunk {
@@ -168,6 +192,81 @@ export class DocumentationSearchService implements OnModuleDestroy {
     return rows.map(({ rank, ...row }) => ({ ...row, score: -rank }));
   }
 
+  /** Fetch one document by its deterministic ingestion identifier. */
+  fetchDocument(documentId: unknown): FetchedDocumentation | null {
+    if (
+      typeof documentId !== 'string' ||
+      !DOCUMENT_ID_PATTERN.test(documentId)
+    ) {
+      throw new BadRequestException(
+        'Document ID must be a deterministic NestJS document ID',
+      );
+    }
+
+    const rows = this.database
+      .prepare(
+        `
+        SELECT title, heading_path AS headingPath,
+          canonical_url AS canonicalUrl,
+          source_revision AS sourceRevision, markdown
+        FROM documentation_search
+        WHERE document_id = ?
+        ORDER BY rowid ASC
+      `,
+      )
+      .all(documentId)
+      .map(toDocumentRow);
+    const first = rows[0];
+    if (!first) return null;
+
+    const grouped: DocumentRow[] = [];
+    for (const row of rows) {
+      const previous = grouped.at(-1);
+      if (
+        previous?.canonicalUrl === row.canonicalUrl &&
+        previous.headingPath === row.headingPath
+      ) {
+        previous.markdown += `\n\n${row.markdown}`;
+      } else {
+        grouped.push({ ...row });
+      }
+    }
+
+    let remaining = MAX_FETCH_DOCUMENT_CHARS;
+    let truncated = false;
+    const sections: DocumentationSectionResult[] = [];
+    for (const section of grouped) {
+      const headingPath = section.headingPath || first.title;
+      const framing = `\n\n## ${headingPath}\nSource: ${section.canonicalUrl}\n\n`;
+      const available = remaining - framing.length;
+      if (available <= 0) {
+        truncated = true;
+        break;
+      }
+
+      const clipped = truncate(section.markdown, available);
+      sections.push({
+        headingPath,
+        canonicalUrl: section.canonicalUrl,
+        markdown: clipped.text,
+      });
+      remaining -= framing.length + clipped.text.length;
+      if (clipped.truncated) {
+        truncated = true;
+        break;
+      }
+    }
+    if (sections.length < grouped.length) truncated = true;
+
+    return {
+      documentId,
+      title: first.title,
+      sourceRevision: first.sourceRevision,
+      sections,
+      truncated,
+    };
+  }
+
   onModuleDestroy(): void {
     if (this.closed) return;
     this.database.close();
@@ -286,4 +385,40 @@ function containsForbiddenControlCharacters(value: string): boolean {
     }
   }
   return false;
+}
+
+function toDocumentRow(row: Record<string, unknown>): DocumentRow {
+  const { title, headingPath, canonicalUrl, sourceRevision, markdown } = row;
+  if (
+    typeof title !== 'string' ||
+    typeof headingPath !== 'string' ||
+    typeof canonicalUrl !== 'string' ||
+    typeof sourceRevision !== 'string' ||
+    typeof markdown !== 'string'
+  ) {
+    throw new Error('SQLite returned an invalid documentation row');
+  }
+  return { title, headingPath, canonicalUrl, sourceRevision, markdown };
+}
+
+function truncate(
+  value: string,
+  maxLength: number,
+): {
+  text: string;
+  truncated: boolean;
+} {
+  if (value.length <= maxLength) return { text: value, truncated: false };
+  let end = maxLength;
+  const before = value.charCodeAt(end - 1);
+  const after = value.charCodeAt(end);
+  if (
+    before >= 0xd800 &&
+    before <= 0xdbff &&
+    after >= 0xdc00 &&
+    after <= 0xdfff
+  ) {
+    end -= 1;
+  }
+  return { text: value.slice(0, end), truncated: true };
 }

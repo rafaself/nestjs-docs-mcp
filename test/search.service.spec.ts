@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { ingestSnapshot } from '../src/ingestion/pipeline.js';
+import { MAX_FETCH_DOCUMENT_CHARS } from '../src/search/search.constants.js';
 import { DocumentationSearchService } from '../src/search/search.service.js';
 import { loadSearchCorpus } from './search.fixtures.js';
 
@@ -45,6 +46,33 @@ describe('DocumentationSearchService', () => {
   it('returns no matches for an empty query', () => {
     expect(service.search('')).toEqual([]);
     expect(service.search('   ')).toEqual([]);
+  });
+
+  it('bounds fetched documentation content and marks truncation', () => {
+    const corpus = ingestSnapshot({
+      revision: 'e'.repeat(40),
+      documents: [
+        {
+          path: 'content/large.md',
+          canonicalUrl: 'https://docs.nestjs.com/large',
+          markdown: `# Large document\n\n## Long section\n\n${'authorization '.repeat(3000)}`,
+        },
+      ],
+    });
+    service.indexCorpus(corpus);
+
+    const document = service.fetchDocument(corpus.documents[0]!.id);
+    const sectionCharacters = document!.sections.reduce(
+      (sum, section) =>
+        sum +
+        `\n\n## ${section.headingPath}\nSource: ${section.canonicalUrl}\n\n`
+          .length +
+        section.markdown.length,
+      0,
+    );
+
+    expect(document?.truncated).toBe(true);
+    expect(sectionCharacters).toBeLessThanOrEqual(MAX_FETCH_DOCUMENT_CHARS);
   });
 
   it('validates query input and bounds the result limit', () => {
