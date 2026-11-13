@@ -1,9 +1,15 @@
 import type { NestJsDocumentationVersion } from '../documentation-version.js';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const PACKAGE_DATA_DIRECTORY = fileURLToPath(
+  new URL('../../data/', import.meta.url),
+);
 
 export function searchDatabasePath(
   version: NestJsDocumentationVersion,
 ): string {
-  return `data/documentation-v${version}.sqlite`;
+  return resolve(PACKAGE_DATA_DIRECTORY, `documentation-v${version}.sqlite`);
 }
 
 export const DEFAULT_SEARCH_RESULT_LIMIT = 10;

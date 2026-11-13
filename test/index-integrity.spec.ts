@@ -86,4 +86,33 @@ describe('documentation index integrity validation', () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it('accepts section URLs anchored to the v11 documentation root', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'nestjs-docs-v11-root-'));
+    const databasePath = join(directory, 'documentation.sqlite');
+    const index = new DocumentationSearchService(databasePath, 11);
+    const corpus = ingestSnapshot({
+      version: 11,
+      ref: '11.0.0',
+      revision: 'b'.repeat(40),
+      documents: [
+        {
+          path: 'content/introduction.md',
+          canonicalUrl: 'https://docs.nestjs.com/v11',
+          markdown: '# Introduction\n\n## Philosophy\n\nNestJS is a framework.',
+        },
+      ],
+    });
+
+    try {
+      index.indexCorpus(corpus);
+      expect(validateDocumentationIndex(11, corpus, databasePath)).toEqual({
+        documentCount: 1,
+        chunkCount: 2,
+      });
+    } finally {
+      index.onModuleDestroy();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });

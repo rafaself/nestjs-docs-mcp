@@ -1,6 +1,6 @@
 # nestjs-docs-mcp
 
-A standalone NestJS application using the official [`@nestjs/mcp`](https://docs.nestjs.com/mcp/overview) package.
+A standalone, community-maintained NestJS documentation MCP server using the official [`@nestjs/mcp`](https://docs.nestjs.com/mcp/overview) package. This project is independent and is not affiliated with, endorsed by, or an official product of NestJS or its maintainers.
 
 The server runs locally over [stdio](https://docs.nestjs.com/mcp/transports) and exposes two read-only tools: `search_docs` finds relevant sections, and `fetch_docs` retrieves a document by its deterministic ID. Documentation ingestion and search indexing run as separate commands. Tool arguments do not select a documentation version.
 
@@ -9,40 +9,98 @@ The server runs locally over [stdio](https://docs.nestjs.com/mcp/transports) and
 - Node.js 24 LTS (24.15.0 or newer); `.nvmrc` selects the 24 release line.
 - npm (included with Node.js).
 
-## Setup and run
+## Install from npm
+
+```sh
+npm install --global nestjs-docs-mcp
+nestjs-docs-mcp
+```
+
+This installation command will be usable after the package is manually published to npm. Set `NESTJS_VERSION=11` to select v11; the default is v12. The npm package includes the SQLite indexes for both supported majors. This repository does not publish the package automatically.
+
+## Local development
 
 ```sh
 nvm use
 npm ci
 npm run build
+node dist/main.js
 ```
 
-## Connect an MCP client
+The server reads its index files beside the installed package, regardless of the working directory. A fresh checkout needs indexes before the server or `npm pack` can run. After the index-update workflow has published its first bundle, download `documentation-indexes.tar.gz` from the latest [`docs-index-*` GitHub prerelease](https://github.com/rafaself/nestjs-docs-mcp/releases), then extract it into the repository's `data/` directory.
 
-Configure your MCP client to launch the compiled entry point directly, replacing the path with this repository's absolute path:
+`npm pack` builds the application and verifies both indexes against the manifest, SQLite integrity checks, FTS5 integrity checks, and indexed version metadata. It fails if a required index is missing or invalid. The package contains the compiled server, both SQLite indexes, their source manifest, README, and license notices; it excludes tests and source documentation.
 
-```json
-{
-  "mcpServers": {
-    "nestjs-docs-mcp": {
-      "command": "node",
-      "args": ["/absolute/path/to/nestjs-docs-mcp/dist/main.js"]
-    }
-  }
-}
-```
-
-Use Node.js 24 from the client's environment, or set `command` to the absolute path of its Node.js executable. The client starts the process and communicates through stdin/stdout; there is no HTTP listener or port configuration.
-
-Stdout is reserved for MCP protocol messages. Nest startup logs and errors go to stderr through the official `McpStdioLogger`. Closing stdin ends the MCP connection and closes the application context. SIGINT and SIGTERM also trigger Nest shutdown hooks.
-
-For a manual launch, use `node dist/main.js` or `npm run --silent start:prod`. Use the direct Node.js command in MCP client configurations to avoid npm banners on stdout. `npm run start:dev` rebuilds and restarts on changes for development; its compiler output makes it unsuitable as an MCP client command.
-
-To run the v11 server directly, set the version before startup:
+To rebuild indexes locally from the official sources instead of downloading the latest release bundle:
 
 ```sh
-NESTJS_VERSION=11 node dist/main.js
+npm run docs:ingest
+NESTJS_VERSION=11 npm run docs:ingest
+npm run search:index
+NESTJS_VERSION=11 npm run search:index
 ```
+
+This local ingestion path creates corpus and index files but not the release manifest required by `npm pack`; use a validated release bundle when preparing a package.
+
+Before the first automated bundle is available, generate the package bundle from official sources and copy its validated indexes into `data/`:
+
+```sh
+set -euo pipefail
+bundle_dir="$(mktemp -d)"
+trap 'rm -r "$bundle_dir"' EXIT
+node scripts/synchronize-documentation-indexes.mjs --output "$bundle_dir/indexes"
+mkdir -p data
+cp "$bundle_dir/indexes/documentation-v11.sqlite" \
+  "$bundle_dir/indexes/documentation-v12.sqlite" \
+  "$bundle_dir/indexes/manifest.json" data/
+```
+
+## Connect from Codex
+
+After installing the package, register the stdio server using the current [Codex MCP setup](https://learn.chatgpt.com/docs/extend/mcp):
+
+```sh
+codex mcp add nestjs-docs --env NESTJS_VERSION=12 -- nestjs-docs-mcp
+```
+
+Or configure it in `~/.codex/config.toml` (or a trusted project's `.codex/config.toml`):
+
+```toml
+[mcp_servers.nestjs-docs]
+command = "nestjs-docs-mcp"
+
+[mcp_servers.nestjs-docs.env]
+NESTJS_VERSION = "12"
+```
+
+For source development, point Codex to the compiled entry point and choose the major in its environment:
+
+```toml
+[mcp_servers.nestjs-docs-local]
+command = "node"
+args = ["/absolute/path/to/nestjs-docs-mcp/dist/main.js"]
+
+[mcp_servers.nestjs-docs-local.env]
+NESTJS_VERSION = "11"
+```
+
+The MCP server uses stdio and does not start an HTTP listener. Its read-only tools are `search_docs` (natural-language or identifier query, optional limit 1–10) and `fetch_docs` (bounded Markdown for a deterministic document ID). Version selection stays in the local process environment, outside model-controlled tool arguments. The default is v12; v11 uses the archived official source described below.
+
+Codex desktop, CLI, and IDE extension share the local MCP configuration. Refresh an already-running local client after adding the server.
+
+## Run from a source checkout
+
+After downloading the index bundle as described above, `npm ci` and `npm run build`, then launch with `node dist/main.js` or `npm run --silent start:prod`. Use the direct Node command in MCP client configurations to avoid npm banners on stdout. `npm run start:dev` rebuilds and restarts on changes; its compiler output makes it unsuitable as an MCP client command.
+
+The npm executable is `nestjs-docs-mcp`; it launches the same compiled stdio entry point. Stdout is reserved for MCP protocol messages. Nest startup logs and errors go to stderr through `McpStdioLogger`. Closing stdin ends the MCP connection and closes the application context. SIGINT and SIGTERM trigger Nest shutdown hooks.
+
+## Package maintenance
+
+The `prepack` check builds and validates a local tarball. Publishing is a separate manual action; this repository has no npm publish workflow or automatic release script. Documentation index updates are distributed through GitHub prerelease assets, not npm releases.
+
+## Third-party documentation content
+
+The bundled indexes contain normalized Markdown derived from the official NestJS documentation repository. They retain their source revisions and content hashes in `data/manifest.json`. The v11 and v12 snapshots are MIT-licensed at their respective indexed commits; the package includes the matching copyright notices and full license texts in `THIRD-PARTY-NOTICES.md` and `licenses/`.
 
 ## Select a documentation major
 

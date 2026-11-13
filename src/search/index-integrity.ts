@@ -186,8 +186,19 @@ function isCanonicalUrl(
 ): boolean {
   if (typeof value !== 'string') return false;
   const prefix = version === 11 ? `${SITE}/v11` : SITE;
-  if (version === 12 && value.startsWith(`${SITE}/v11`)) return false;
-  return value === prefix || value.startsWith(`${prefix}/`);
+  if (
+    version === 12 &&
+    (value === `${SITE}/v11` ||
+      value.startsWith(`${SITE}/v11/`) ||
+      value.startsWith(`${SITE}/v11#`))
+  ) {
+    return false;
+  }
+  return (
+    value === prefix ||
+    value.startsWith(`${prefix}/`) ||
+    value.startsWith(`${prefix}#`)
+  );
 }
 
 function isSha256(value: unknown): value is string {

@@ -1,15 +1,44 @@
 {
   "name": "nestjs-docs-mcp",
   "version": "0.0.1",
-  "description": "Standalone NestJS MCP application.",
-  "private": true,
+  "description": "A local stdio MCP server for searching NestJS v11 and v12 documentation.",
   "type": "module",
+  "bin": {
+    "nestjs-docs-mcp": "./dist/main.js"
+  },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rafaself/nestjs-docs-mcp.git"
+  },
+  "homepage": "https://github.com/rafaself/nestjs-docs-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/rafaself/nestjs-docs-mcp/issues"
+  },
+  "keywords": [
+    "nestjs",
+    "mcp",
+    "model-context-protocol",
+    "documentation",
+    "stdio"
+  ],
+  "files": [
+    "dist/**",
+    "data/documentation-v11.sqlite",
+    "data/documentation-v12.sqlite",
+    "data/manifest.json",
+    "README.md",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md",
+    "licenses/nestjs-docs-v11-LICENSE",
+    "licenses/nestjs-docs-v12-LICENSE"
+  ],
   "engines": {
     "node": "^24.15.0 || >=26.0.0"
   },
   "scripts": {
     "build": "nest build",
+    "prepack": "npm run build && node scripts/verify-package.mjs",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
