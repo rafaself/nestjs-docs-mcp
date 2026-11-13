@@ -14,13 +14,10 @@ const routeSchema = z.string().regex(/^\/(?:[a-z0-9-]+(?:\/[a-z0-9-]+)*)?$/);
 interface DocumentationSourceConfig {
   ref: string;
   canonicalRoot: string;
-  revision?: string;
-  treeRevision?: string;
 }
 
 /**
- * The v11 docs route is backed by the official 11.0.0 source branch, pinned to
- * its last maintainer-authored commit. Current v12 documentation follows master.
+ * The official site serves v11 from the 11.0.0 branch and v12 from master.
  */
 export const DOCUMENTATION_SOURCES: Record<
   NestJsDocumentationVersion,
@@ -28,8 +25,6 @@ export const DOCUMENTATION_SOURCES: Record<
 > = {
   11: {
     ref: '11.0.0',
-    revision: '7b1c9394992ad4d8e8d17b30604e02003ee8f98f',
-    treeRevision: '41dc34f636518ee8fbfef76456a9a995b4191997',
     canonicalRoot: `${SITE}/v11`,
   },
   12: { ref: 'master', canonicalRoot: SITE },
@@ -237,24 +232,44 @@ export function readHistoricalSourceIndex(
   return [...documents.values()];
 }
 
+export async function resolveDocumentationSource(
+  version: NestJsDocumentationVersion,
+  fetcher: typeof fetch = fetch,
+): Promise<Pick<DocumentationSnapshot, 'version' | 'ref' | 'revision'>> {
+  const source = DOCUMENTATION_SOURCES[version];
+  const revision = z
+    .object({ sha: z.string().regex(/^[a-f0-9]{40}$/u) })
+    .parse(
+      JSON.parse(await downloadText(`${API}/commits/${source.ref}`, fetcher)),
+    ).sha;
+  return { version, ref: source.ref, revision };
+}
+
+async function resolveTreeRevision(
+  revision: string,
+  fetcher: typeof fetch,
+): Promise<string> {
+  const commit: unknown = JSON.parse(
+    await downloadText(`${API}/commits/${revision}`, fetcher),
+  );
+  return z
+    .object({
+      commit: z.object({
+        tree: z.object({ sha: z.string().regex(/^[a-f0-9]{40}$/u) }),
+      }),
+    })
+    .parse(commit).commit.tree.sha;
+}
+
 export async function downloadDocumentation(
   version: NestJsDocumentationVersion = 12,
   fetcher: typeof fetch = fetch,
 ): Promise<DocumentationSnapshot> {
   const source = DOCUMENTATION_SOURCES[version];
-  const revision =
-    source.revision ??
-    z
-      .object({ sha: z.string().regex(/^[a-f0-9]{40}$/u) })
-      .parse(
-        JSON.parse(await downloadText(`${API}/commits/${source.ref}`, fetcher)),
-      ).sha;
+  const { revision } = await resolveDocumentationSource(version, fetcher);
   let entries: Omit<SourceDocument, 'markdown'>[];
   if (version === 11) {
-    const treeRevision = source.treeRevision;
-    if (!treeRevision || !/^[a-f0-9]{40}$/u.test(treeRevision)) {
-      throw new Error('Historical documentation tree revision is invalid');
-    }
+    const treeRevision = await resolveTreeRevision(revision, fetcher);
     const tree = await downloadText(
       `${API}/git/trees/${treeRevision}?recursive=1`,
       fetcher,

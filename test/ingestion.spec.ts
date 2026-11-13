@@ -100,8 +100,8 @@ describe('source download', () => {
   });
 
   it('downloads v11 Markdown from the pinned official source tree', async () => {
-    const revision11 = DOCUMENTATION_SOURCES[11].revision!;
-    const treeRevision = DOCUMENTATION_SOURCES[11].treeRevision!;
+    const revision11 = 'd'.repeat(40);
+    const treeRevision = 'e'.repeat(40);
     const paths = ['content/introduction.md', 'content/components.md'];
     const tree = JSON.stringify({
       tree: paths.map((path) => ({ path, type: 'blob' })),
@@ -120,6 +120,14 @@ describe('source download', () => {
             ? input.href
             : input.url;
       requests.push(url);
+      if (url.endsWith('/commits/11.0.0')) {
+        return Promise.resolve(Response.json({ sha: revision11 }));
+      }
+      if (url.endsWith(`/commits/${revision11}`)) {
+        return Promise.resolve(
+          Response.json({ commit: { tree: { sha: treeRevision } } }),
+        );
+      }
       if (url.endsWith(`/git/trees/${treeRevision}?recursive=1`)) {
         return Promise.resolve(new Response(tree));
       }
@@ -142,6 +150,7 @@ describe('source download', () => {
       'https://docs.nestjs.com/v11',
     ]);
     expect(requests.some((url) => url.includes('/commits/master'))).toBe(false);
+    expect(DOCUMENTATION_SOURCES[11].ref).toBe('11.0.0');
     expect(
       requests.filter((url) => url.startsWith(sourceUrl(revision11, ''))),
     ).toHaveLength(2);

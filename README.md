@@ -48,7 +48,7 @@ NESTJS_VERSION=11 node dist/main.js
 
 Set `NESTJS_VERSION=11` or `NESTJS_VERSION=12` to choose the documentation major. The default is `12`, the latest supported major in the [official migration guide](https://docs.nestjs.com/migration-guide). Any other value fails when the application or an ingestion/index command starts. The MCP tools do not accept a version argument; each server process keeps the configured major for its lifetime.
 
-The official [v12 documentation source](https://github.com/nestjs/docs.nestjs.com/tree/master) is the current `master` branch. The official site links its v11 archive through [See Version 11](https://docs.nestjs.com/v11); its Markdown source is the repository's [`11.0.0` branch](https://github.com/nestjs/docs.nestjs.com/tree/11.0.0). That branch is pinned here to commit `7b1c9394992ad4d8e8d17b30604e02003ee8f98f` (January 17, 2025). Historical v11 material is therefore a fixed snapshot and does not include later edits to the v11 docs. The source commit is recorded separately from the documentation major.
+The official [v12 documentation source](https://github.com/nestjs/docs.nestjs.com/tree/master) is the current `master` branch. The official site links its v11 archive through [See Version 11](https://docs.nestjs.com/v11); its Markdown source is the repository's [`11.0.0` branch](https://github.com/nestjs/docs.nestjs.com/tree/11.0.0). That branch's latest commit observed during implementation was `7b1c9394992ad4d8e8d17b30604e02003ee8f98f` (January 17, 2025). Automation checks both branch heads and records each resolved commit separately from the documentation major. Historical v11 material remains limited to that archived branch and may not include later edits from other documentation sources.
 
 ## Ingest documentation
 
@@ -87,13 +87,23 @@ NESTJS_VERSION=11 npm run search:index
 NESTJS_VERSION=11 npm run search:index -- --input /tmp/nestjs-documentation-v11.json --database /tmp/nestjs-documentation-v11.sqlite
 ```
 
-The default indexes are `data/documentation-v11.sqlite` and `data/documentation-v12.sqlite` (ignored by Git). SQLite FTS5 rows are tagged with their documentation major. Indexing one major replaces only that major's rows, and search and fetch always filter by the major fixed in the service. A shared custom SQLite path can safely hold both indexes. A corpus for the wrong major is rejected; an older unversioned index schema must be rebuilt with `npm run search:index`.
+The default indexes are `data/documentation-v11.sqlite` and `data/documentation-v12.sqlite` (ignored by Git). SQLite FTS5 rows are tagged with their documentation major. Indexing synchronizes only that major's rows, retaining unchanged content and removing obsolete documents. Search and fetch always filter by the major fixed in the service. A shared custom SQLite path can safely hold both indexes. A corpus for the wrong major is rejected; an older unversioned index schema must be rebuilt with `npm run search:index`.
 
 Each index contains section chunks with document titles, heading paths, normalized Markdown, and code examples. Search uses SQLite FTS5 ranking and snippets, with title and heading matches weighted above body text. Queries are converted to quoted terms so caller text cannot inject FTS operators; punctuation around identifiers such as `@Injectable()` is handled. Empty queries return no results. Queries are limited to 256 characters and 32 terms, and result limits default to 10 and cap at 50.
 
 The injectable `DocumentationSearchService` is exported by `DocumentationSearchModule` and can be used independently of the MCP server. It returns chunk and document identifiers, title, section canonical URL, source revision, excerpt, and relevance score. The MCP tools delegate to this service. SQLite comes from Node's built-in `node:sqlite` module, so no database service or production database package is required.
 
 The stdio MCP server reads the index matching `NESTJS_VERSION` when it starts. `search_docs` accepts a natural-language query or technical identifier and an optional result limit from 1 to 10. `fetch_docs` accepts only a deterministic document ID from the selected major; IDs from another major are rejected. It returns section Markdown with official canonical URLs and truncates output at 12,000 section characters. Both tools use strict input schemas, so unsupported arguments such as `version` are rejected. Set `NESTJS_DOCS_SEARCH_DB` to use a different index path; its rows remain isolated by major.
+
+## Automated index updates and distribution
+
+The GitHub Actions workflow checks the official `11.0.0` and `master` refs weekly and on manual dispatch. It resolves each ref before downloading Markdown, reuses an unchanged major's existing corpus and index, reindexes changed documents, and removes deleted documents when a source revision advances. Source revisions and document content hashes are recorded in the corpus and release manifest. The workflow verifies corpus hashes, SQLite and FTS5 integrity, and exact corpus-to-index row parity before packaging.
+
+Only after both majors validate does the workflow publish a **prerelease** with a unique tag beginning `docs-index-` and a single `documentation-indexes.tar.gz` asset. Each update uses a new release; the workflow never replaces the previous published bundle, so a failed build or upload leaves it available. This uses GitHub Releases as the index distribution channel; it does not publish npm packages. The MCP server never synchronizes or downloads documentation during tool requests.
+
+To install the newest bundle locally, use the latest `docs-index-*` prerelease from the [GitHub Releases page](https://github.com/rafaself/nestjs-docs-mcp/releases), download `documentation-indexes.tar.gz` into `data/`, and extract it there. The archive includes separate v11 and v12 corpus and SQLite files plus a manifest. Set `NESTJS_VERSION` before starting the MCP process to choose which local index it opens.
+
+When the ingestion or SQLite index format changes, increment `INDEX_PIPELINE_VERSION` in `scripts/synchronize-documentation-indexes.mjs` to force a rebuild from the official sources.
 
 ## Checks
 

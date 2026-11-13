@@ -75,6 +75,15 @@ interface SearchChunk {
   markdown: string;
 }
 
+interface ExistingIndexRow {
+  chunkId: string;
+  title: string;
+  headingPath: string;
+  markdown: string;
+  canonicalUrl: string;
+  sourceRevision: string;
+}
+
 @Injectable()
 export class DocumentationSearchService implements OnModuleDestroy {
   private readonly database: DatabaseSync;
@@ -138,11 +147,31 @@ export class DocumentationSearchService implements OnModuleDestroy {
     `);
   }
 
-  /** Replace the full-text index with chunks from one ingested corpus. */
+  /** Synchronize this version's index with one ingested corpus. */
   indexCorpus(corpus: DocumentationCorpus): number {
     const chunks = validateCorpus(corpus, this.documentationVersion);
-    const clear = this.database.prepare(
-      'DELETE FROM documentation_search WHERE documentation_version = ?',
+    const chunksByDocument = new Map<string, SearchChunk[]>();
+    for (const chunk of chunks) {
+      const documentChunks = chunksByDocument.get(chunk.documentId) ?? [];
+      documentChunks.push(chunk);
+      chunksByDocument.set(chunk.documentId, documentChunks);
+    }
+    const listExistingDocuments = this.database.prepare(
+      'SELECT DISTINCT document_id AS documentId FROM documentation_search WHERE documentation_version = ?',
+    );
+    const existingRows = this.database.prepare(`
+      SELECT chunk_id AS chunkId, title,
+        heading_path AS headingPath, markdown,
+        canonical_url AS canonicalUrl, source_revision AS sourceRevision
+      FROM documentation_search
+      WHERE document_id = ? AND documentation_version = ?
+      ORDER BY rowid ASC
+    `);
+    const deleteDocument = this.database.prepare(
+      'DELETE FROM documentation_search WHERE document_id = ? AND documentation_version = ?',
+    );
+    const updateRevision = this.database.prepare(
+      'UPDATE documentation_search SET source_revision = ? WHERE document_id = ? AND documentation_version = ?',
     );
     const insert = this.database.prepare(`
       INSERT INTO documentation_search (
@@ -155,24 +184,57 @@ export class DocumentationSearchService implements OnModuleDestroy {
     try {
       this.database.exec('BEGIN IMMEDIATE');
       transactionStarted = true;
-      clear.run(this.documentationVersion);
-      for (const chunk of chunks) {
-        insert.run(
-          chunk.title,
-          chunk.headingPath.map((heading) => heading.title).join(' > '),
-          chunk.markdown,
-          this.documentationVersion,
-          chunk.id,
-          chunk.documentId,
-          chunk.canonicalUrl,
-          chunk.sourceRevision,
-        );
+      const existingDocumentIds = listExistingDocuments
+        .all(this.documentationVersion)
+        .map((row) => row.documentId);
+      const incomingDocumentIds = new Set(chunksByDocument.keys());
+      for (const documentId of existingDocumentIds) {
+        if (
+          typeof documentId === 'string' &&
+          !incomingDocumentIds.has(documentId)
+        ) {
+          deleteDocument.run(documentId, this.documentationVersion);
+        }
+      }
+
+      for (const [documentId, documentChunks] of chunksByDocument) {
+        const current = existingRows
+          .all(documentId, this.documentationVersion)
+          .map(toExistingIndexRow);
+        if (sameIndexedContent(current, documentChunks)) {
+          updateRevision.run(
+            documentChunks[0]!.sourceRevision,
+            documentId,
+            this.documentationVersion,
+          );
+          continue;
+        }
+
+        deleteDocument.run(documentId, this.documentationVersion);
+        for (const chunk of documentChunks) {
+          insert.run(
+            chunk.title,
+            chunk.headingPath.map((heading) => heading.title).join(' > '),
+            chunk.markdown,
+            this.documentationVersion,
+            chunk.id,
+            chunk.documentId,
+            chunk.canonicalUrl,
+            chunk.sourceRevision,
+          );
+        }
       }
       this.database.exec('COMMIT');
       transactionStarted = false;
       return chunks.length;
     } catch (error) {
-      if (transactionStarted) this.database.exec('ROLLBACK');
+      if (transactionStarted) {
+        try {
+          this.database.exec('ROLLBACK');
+        } catch {
+          // SQLite can roll back a transaction automatically on disk-full errors.
+        }
+      }
       throw error;
     }
   }
@@ -339,6 +401,10 @@ function validateCorpus(
     typeof corpus !== 'object' ||
     !corpus.source ||
     corpus.source.version !== expectedVersion ||
+    typeof corpus.source.ref !== 'string' ||
+    !corpus.source.ref.trim() ||
+    typeof corpus.source.revision !== 'string' ||
+    !/^[a-f0-9]{40}$/u.test(corpus.source.revision) ||
     !Array.isArray(corpus.documents) ||
     corpus.documents.length === 0
   ) {
@@ -357,6 +423,8 @@ function validateCorpus(
       !document.id.trim() ||
       typeof document.title !== 'string' ||
       !document.title.trim() ||
+      !document.source ||
+      document.source.revision !== corpus.source.revision ||
       !Array.isArray(document.chunks) ||
       document.chunks.length === 0 ||
       documentIds.has(document.id)
@@ -377,7 +445,7 @@ function validateCorpus(
         typeof chunk.canonicalUrl !== 'string' ||
         !chunk.canonicalUrl.trim() ||
         typeof chunk.sourceRevision !== 'string' ||
-        !chunk.sourceRevision.trim() ||
+        chunk.sourceRevision !== corpus.source.revision ||
         typeof chunk.markdown !== 'string' ||
         !Array.isArray(chunk.headingPath) ||
         chunk.headingPath.some(
@@ -401,6 +469,54 @@ function validateCorpus(
     }
   }
   return chunks;
+}
+
+function toExistingIndexRow(row: Record<string, unknown>): ExistingIndexRow {
+  const {
+    chunkId,
+    title,
+    headingPath,
+    markdown,
+    canonicalUrl,
+    sourceRevision,
+  } = row;
+  if (
+    typeof chunkId !== 'string' ||
+    typeof title !== 'string' ||
+    typeof headingPath !== 'string' ||
+    typeof markdown !== 'string' ||
+    typeof canonicalUrl !== 'string' ||
+    typeof sourceRevision !== 'string'
+  ) {
+    throw new Error('SQLite returned an invalid documentation index row');
+  }
+  return {
+    chunkId,
+    title,
+    headingPath,
+    markdown,
+    canonicalUrl,
+    sourceRevision,
+  };
+}
+
+function sameIndexedContent(
+  existing: ExistingIndexRow[],
+  incoming: SearchChunk[],
+): boolean {
+  if (existing.length !== incoming.length) return false;
+  return existing.every((row, index) => {
+    const chunk = incoming[index];
+    return (
+      chunk !== undefined &&
+      row.chunkId === chunk.id &&
+      row.title === chunk.title &&
+      row.headingPath ===
+        chunk.headingPath.map((heading) => heading.title).join(' > ') &&
+      row.markdown === chunk.markdown &&
+      row.canonicalUrl === chunk.canonicalUrl
+    );
+  });
 }
 
 function toSearchRow(row: Record<string, unknown>): SearchRow {

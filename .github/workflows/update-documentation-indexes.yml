@@ -1,0 +1,142 @@
+name: Update NestJS documentation indexes
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: documentation-index-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Download the previous published index bundle
+        id: previous
+        shell: bash
+        run: |
+          set -euo pipefail
+          work_dir="$RUNNER_TEMP/nestjs-docs-indexes-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$work_dir/previous"
+          echo "work_dir=$work_dir" >> "$GITHUB_OUTPUT"
+
+          previous_tag="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq 'add | map(select(.draft == false and .prerelease == true and (.tag_name | startswith("docs-index-")))) | max_by(.created_at) | .tag_name // ""')"
+          if [[ -z "$previous_tag" ]]; then
+            echo "has_previous=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          gh release download "$previous_tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern documentation-indexes.tar.gz \
+            --dir "$work_dir/previous"
+          actual_assets="$(tar -tzf "$work_dir/previous/documentation-indexes.tar.gz" | sort)"
+          expected_assets="$(printf '%s\n' \
+            documentation-v11.json \
+            documentation-v11.sqlite \
+            documentation-v12.json \
+            documentation-v12.sqlite \
+            manifest.json | sort)"
+          if [[ "$actual_assets" != "$expected_assets" ]]; then
+            echo "Previous documentation index archive has an unexpected file list" >&2
+            exit 1
+          fi
+          tar -xzf "$work_dir/previous/documentation-indexes.tar.gz" \
+            -C "$work_dir/previous"
+          echo "has_previous=true" >> "$GITHUB_OUTPUT"
+
+      - name: Synchronize and validate both documentation indexes
+        id: sync
+        shell: bash
+        env:
+          WORK_DIR: ${{ steps.previous.outputs.work_dir }}
+          HAS_PREVIOUS: ${{ steps.previous.outputs.has_previous }}
+        run: |
+          set -euo pipefail
+          if [[ "$HAS_PREVIOUS" == "true" ]]; then
+            node scripts/synchronize-documentation-indexes.mjs \
+              --output "$WORK_DIR/next" \
+              --previous "$WORK_DIR/previous" \
+              --result-file "$WORK_DIR/result.json"
+          else
+            node scripts/synchronize-documentation-indexes.mjs \
+              --output "$WORK_DIR/next" \
+              --result-file "$WORK_DIR/result.json"
+          fi
+          changed="$(node --input-type=module -e 'import { readFile } from "node:fs/promises"; const result = JSON.parse(await readFile(process.argv[1], "utf8")); process.stdout.write(String(result.changed));' "$WORK_DIR/result.json")"
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+      - name: Create and verify index bundle
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          WORK_DIR: ${{ steps.previous.outputs.work_dir }}
+        run: |
+          set -euo pipefail
+          tar -C "$WORK_DIR/next" -czf "$WORK_DIR/documentation-indexes.tar.gz" \
+            manifest.json \
+            documentation-v11.json documentation-v11.sqlite \
+            documentation-v12.json documentation-v12.sqlite
+          tar -tzf "$WORK_DIR/documentation-indexes.tar.gz" >/dev/null
+
+      - name: Publish validated GitHub release asset
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          WORK_DIR: ${{ steps.previous.outputs.work_dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$WORK_DIR/next/manifest.json"
+          v11_revision="$(node --input-type=module -e 'import { readFile } from "node:fs/promises"; const manifest = JSON.parse(await readFile(process.argv[1], "utf8")); process.stdout.write(manifest.versions["11"].revision);' "$manifest")"
+          v12_revision="$(node --input-type=module -e 'import { readFile } from "node:fs/promises"; const manifest = JSON.parse(await readFile(process.argv[1], "utf8")); process.stdout.write(manifest.versions["12"].revision);' "$manifest")"
+          manifest_digest="$(sha256sum "$manifest" | cut -c1-13)"
+          release_tag="docs-index-$(date -u +%Y%m%d)-${manifest_digest}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          release_name="NestJS documentation indexes $(date -u +%Y-%m-%d)"
+          release_notes="$WORK_DIR/release-notes.md"
+          cat > "$release_notes" <<EOF
+          Validated documentation corpus and SQLite FTS5 indexes for both supported NestJS majors.
+
+          - NestJS v11 source revision: [\`$v11_revision\`](https://github.com/nestjs/docs.nestjs.com/commit/$v11_revision)
+          - NestJS v12 source revision: [\`$v12_revision\`](https://github.com/nestjs/docs.nestjs.com/commit/$v12_revision)
+
+          Download and extract \`documentation-indexes.tar.gz\` into the repository's \`data/\` directory. This is a prerelease containing data assets only; it does not publish an npm package.
+          EOF
+
+          release_id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
+            -f "tag_name=$release_tag" \
+            -f "target_commitish=$GITHUB_SHA" \
+            -f "name=$release_name" \
+            -f "body=$(cat "$release_notes")" \
+            -F draft=true \
+            -F prerelease=true \
+            -F make_latest=false \
+            --jq .id)"
+          gh release upload "$release_tag" "$WORK_DIR/documentation-indexes.tar.gz" \
+            --repo "$GITHUB_REPOSITORY"
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            -F draft=false \
+            -F make_latest=false
+          echo "Published validated index bundle: $release_tag"
