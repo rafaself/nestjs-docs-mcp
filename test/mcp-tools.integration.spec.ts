@@ -6,6 +6,7 @@ import type { INestApplicationContext } from '@nestjs/common';
 import type { Client } from '@modelcontextprotocol/client';
 import { connectMcpClient } from '@nestjs/mcp/testing';
 import { AppModule } from '../src/app.module.js';
+import { ingestSnapshot } from '../src/ingestion/pipeline.js';
 import { DocumentationSearchService } from '../src/search/search.service.js';
 import { loadSearchCorpus } from './search.fixtures.js';
 
@@ -22,7 +23,22 @@ describe('documentation MCP tools', () => {
     documentId = corpus.documents[0]!.id;
 
     const index = new DocumentationSearchService(databasePath, 12);
-    index.indexCorpus(corpus);
+    const longCorpus = ingestSnapshot({
+      version: 12,
+      ref: 'master',
+      revision: corpus.source.revision,
+      documents: [
+        {
+          path: 'content/long.md',
+          canonicalUrl: 'https://docs.nestjs.com/long',
+          markdown: `# Long page\n\n## Streaming\n\n${'streaming 🌍 '.repeat(2000)}\n\n## Last section\n\nlate-marker`,
+        },
+      ],
+    });
+    index.indexCorpus({
+      ...corpus,
+      documents: [...corpus.documents, ...longCorpus.documents],
+    });
     index.onModuleDestroy();
 
     app = await NestFactory.createApplicationContext(
@@ -81,6 +97,24 @@ describe('documentation MCP tools', () => {
       'https://docs.nestjs.com/guards#inspecting-request-context',
     );
     expect(text).toContain('ExecutionContext');
+    expect(text).toContain('Section ID:');
+    expect(text).toContain('Source revision:');
+    const sectionId = /Section ID: ([^\n]+)/u.exec(text)?.[1];
+    const fetched = await client.callTool({
+      name: 'fetch_docs',
+      arguments: { documentId, sectionId },
+    });
+    expect(resultText(fetched.content)).toContain('ExecutionContext');
+    expect(fetched.structuredContent).toMatchObject({
+      found: true,
+      truncated: false,
+      sectionId,
+      documentationVersion: 12,
+    });
+    expect(result.structuredContent).toMatchObject({
+      documentationVersion: 12,
+      results: [{ chunkId: sectionId, documentId }],
+    });
   });
 
   it('fetches section-aware documentation by deterministic ID', async () => {
@@ -98,6 +132,53 @@ describe('documentation MCP tools', () => {
     );
     expect(text).toContain('@Injectable()');
     expect(text).toContain('ExecutionContext');
+  });
+
+  it('returns structured continuation and fetches a later section from a search hit', async () => {
+    const search = await client.callTool({
+      name: 'search_docs',
+      arguments: { query: 'late-marker' },
+    });
+    const data = search.structuredContent as {
+      results: { documentId: string; chunkId: string }[];
+    };
+    const hit = data.results[0]!;
+    const target = await client.callTool({
+      name: 'fetch_docs',
+      arguments: { documentId: hit.documentId, sectionId: hit.chunkId },
+    });
+    expect(target.structuredContent).toMatchObject({
+      found: true,
+      truncated: false,
+    });
+    expect(resultText(target.content)).toContain('late-marker');
+    const first = await client.callTool({
+      name: 'fetch_docs',
+      arguments: { documentId: hit.documentId },
+    });
+    const page = first.structuredContent as {
+      truncated: boolean;
+      nextCursor: string;
+    };
+    expect(page.truncated).toBe(true);
+    const next = await client.callTool({
+      name: 'fetch_docs',
+      arguments: { documentId: hit.documentId, cursor: page.nextCursor },
+    });
+    expect(next.isError).toBeFalsy();
+    expect(next.structuredContent).toMatchObject({
+      documentId: hit.documentId,
+      found: true,
+    });
+    const wrong = await client.callTool({
+      name: 'fetch_docs',
+      arguments: {
+        documentId: hit.documentId,
+        sectionId: hit.chunkId,
+        cursor: page.nextCursor,
+      },
+    });
+    expect(wrong.isError).toBe(true);
   });
 
   it('rejects document IDs from another configured major', async () => {

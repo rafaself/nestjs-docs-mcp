@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { dirname, resolve } from 'node:path';
@@ -45,6 +46,7 @@ export interface FetchedDocumentation {
   sourceRevision: string;
   sections: DocumentationSectionResult[];
   truncated: boolean;
+  nextCursor?: string;
 }
 
 interface SearchRow {
@@ -305,7 +307,11 @@ export class DocumentationSearchService implements OnModuleDestroy {
   }
 
   /** Fetch one document by its deterministic ingestion identifier. */
-  fetchDocument(documentId: unknown): FetchedDocumentation | null {
+  fetchDocument(
+    documentId: unknown,
+    sectionId?: string,
+    cursor?: string,
+  ): FetchedDocumentation | null {
     if (
       typeof documentId !== 'string' ||
       !DOCUMENT_ID_PATTERN.test(documentId)
@@ -337,8 +343,24 @@ export class DocumentationSearchService implements OnModuleDestroy {
     const first = rows[0];
     if (!first) return null;
 
+    let selectedRows = rows;
+    if (sectionId) {
+      const match = this.database
+        .prepare(
+          `SELECT canonical_url AS canonicalUrl, heading_path AS headingPath
+         FROM documentation_search WHERE document_id = ? AND documentation_version = ? AND chunk_id = ?`,
+        )
+        .get(documentId, this.documentationVersion, sectionId);
+      if (!match) return null;
+      selectedRows = rows.filter(
+        (row) =>
+          row.canonicalUrl === match.canonicalUrl &&
+          row.headingPath === match.headingPath,
+      );
+    }
+
     const grouped: DocumentRow[] = [];
-    for (const row of rows) {
+    for (const row of selectedRows) {
       const previous = grouped.at(-1);
       if (
         previous?.canonicalUrl === row.canonicalUrl &&
@@ -350,19 +372,50 @@ export class DocumentationSearchService implements OnModuleDestroy {
       }
     }
 
+    const scopeHash = createHash('sha256')
+      .update(
+        JSON.stringify([
+          documentId,
+          sectionId ?? null,
+          first.sourceRevision,
+          grouped,
+        ]),
+      )
+      .digest('hex');
+    let sectionIndex = 0;
+    let offset = 0;
+    if (cursor) {
+      const match = /^([0-9a-f]{64}):(0|[1-9]\d*):(0|[1-9]\d*)$/u.exec(cursor);
+      if (!match || match[1] !== scopeHash)
+        throw new BadRequestException('Invalid or stale continuation cursor');
+      sectionIndex = Number(match[2]);
+      offset = Number(match[3]);
+      if (
+        !Number.isSafeInteger(sectionIndex) ||
+        !Number.isSafeInteger(offset) ||
+        sectionIndex >= grouped.length ||
+        offset > grouped[sectionIndex]!.markdown.length ||
+        (offset > 0 && offset === grouped[sectionIndex]!.markdown.length)
+      ) {
+        throw new BadRequestException('Invalid continuation cursor');
+      }
+    }
     let remaining = MAX_FETCH_DOCUMENT_CHARS;
-    let truncated = false;
+    let nextCursor: string | undefined;
     const sections: DocumentationSectionResult[] = [];
-    for (const section of grouped) {
+    for (let index = sectionIndex; index < grouped.length; index++) {
+      const section = grouped[index]!;
       const headingPath = section.headingPath || first.title;
       const framing = `\n\n## ${headingPath}\nSource: ${section.canonicalUrl}\n\n`;
       const available = remaining - framing.length;
-      if (available <= 0) {
-        truncated = true;
+      if (available <= 1) {
+        if (remaining === MAX_FETCH_DOCUMENT_CHARS) {
+          throw new BadRequestException('Section heading exceeds fetch limit');
+        }
+        nextCursor = `${scopeHash}:${index}:${offset}`;
         break;
       }
-
-      const clipped = truncate(section.markdown, available);
+      const clipped = truncate(section.markdown.slice(offset), available);
       sections.push({
         headingPath,
         canonicalUrl: section.canonicalUrl,
@@ -370,11 +423,12 @@ export class DocumentationSearchService implements OnModuleDestroy {
       });
       remaining -= framing.length + clipped.text.length;
       if (clipped.truncated) {
-        truncated = true;
+        nextCursor = `${scopeHash}:${index}:${offset + clipped.text.length}`;
         break;
       }
+      offset = 0;
     }
-    if (sections.length < grouped.length) truncated = true;
+    const truncated = nextCursor !== undefined;
 
     return {
       documentId,
@@ -382,6 +436,7 @@ export class DocumentationSearchService implements OnModuleDestroy {
       sourceRevision: first.sourceRevision,
       sections,
       truncated,
+      nextCursor,
     };
   }
 

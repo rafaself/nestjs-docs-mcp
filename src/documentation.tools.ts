@@ -33,6 +33,51 @@ const fetchDocsInput = z.strictObject({
     .string()
     .regex(DOCUMENT_ID_PATTERN)
     .describe('The deterministic document ID returned by search_docs.'),
+  sectionId: z
+    .string()
+    .min(1)
+    .max(256)
+    .optional()
+    .describe('Section ID returned by search_docs.'),
+  cursor: z
+    .string()
+    .max(110)
+    .regex(/^[0-9a-f]{64}:(0|[1-9]\d*):(0|[1-9]\d*)$/u)
+    .optional()
+    .describe(
+      'Continuation cursor returned by fetch_docs; use the same document and section.',
+    ),
+});
+
+const searchResultSchema = z.object({
+  chunkId: z.string(),
+  documentId: z.string(),
+  title: z.string(),
+  canonicalUrl: z.string(),
+  sourceRevision: z.string(),
+  excerpt: z.string(),
+  score: z.number(),
+});
+const searchOutputSchema = z.object({
+  documentationVersion: z.number(),
+  results: z.array(searchResultSchema),
+});
+const fetchOutputSchema = z.object({
+  documentationVersion: z.number(),
+  documentId: z.string(),
+  sectionId: z.string().nullable(),
+  found: z.boolean(),
+  title: z.string().nullable(),
+  sourceRevision: z.string().nullable(),
+  sections: z.array(
+    z.object({
+      headingPath: z.string(),
+      canonicalUrl: z.string(),
+      markdown: z.string(),
+    }),
+  ),
+  truncated: z.boolean(),
+  nextCursor: z.string().nullable(),
 });
 
 @Injectable()
@@ -44,6 +89,7 @@ export class DocumentationTools {
     description:
       'Searches the NestJS documentation major selected when this server starts. Returns ranked section excerpts, document IDs, and official source URLs.',
     inputSchema: searchDocsInput,
+    outputSchema: searchOutputSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -51,31 +97,41 @@ export class DocumentationTools {
       openWorldHint: false,
     },
   })
-  searchDocs({ query, limit }: { query: string; limit?: number }): string {
+  searchDocs({ query, limit }: { query: string; limit?: number }) {
     const results = this.documentation.search(
       query,
       limit ?? DEFAULT_SEARCH_RESULT_LIMIT,
     );
-    if (!results.length) return 'No matching NestJS documentation found.';
-
-    return [
-      `Documentation major: v${this.documentation.documentationVersion}`,
-      ...results.map((result, index) =>
-        [
-          `### ${index + 1}. ${result.title}`,
-          `Document ID: ${result.documentId}`,
-          `Source: ${result.canonicalUrl}`,
-          `Excerpt: ${result.excerpt}`,
-        ].join('\n'),
-      ),
-    ].join('\n\n');
+    const formatted = !results.length
+      ? 'No matching NestJS documentation found.'
+      : [
+          `Documentation major: v${this.documentation.documentationVersion}`,
+          ...results.map((result, index) =>
+            [
+              `### ${index + 1}. ${result.title}`,
+              `Document ID: ${result.documentId}`,
+              `Section ID: ${result.chunkId}`,
+              `Source revision: ${result.sourceRevision}`,
+              `Source: ${result.canonicalUrl}`,
+              `Excerpt: ${result.excerpt}`,
+            ].join('\n'),
+          ),
+        ].join('\n\n');
+    return {
+      content: [{ type: 'text' as const, text: formatted }],
+      structuredContent: {
+        documentationVersion: this.documentation.documentationVersion,
+        results,
+      },
+    };
   }
 
   @Tool({
     name: 'fetch_docs',
     description:
-      'Fetch a bounded section-aware excerpt of one document from the configured NestJS documentation major by deterministic document ID.',
+      'Fetch a document or a section identified by search_docs. Use the returned cursor with the same document and section to continue a truncated excerpt.',
     inputSchema: fetchDocsInput,
+    outputSchema: fetchOutputSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -83,9 +139,40 @@ export class DocumentationTools {
       openWorldHint: false,
     },
   })
-  fetchDocs({ documentId }: { documentId: string }): string {
-    const document = this.documentation.fetchDocument(documentId);
-    if (!document) return `No document found for ID ${documentId}.`;
+  fetchDocs({
+    documentId,
+    sectionId,
+    cursor,
+  }: {
+    documentId: string;
+    sectionId?: string;
+    cursor?: string;
+  }) {
+    const document = this.documentation.fetchDocument(
+      documentId,
+      sectionId,
+      cursor,
+    );
+    if (!document)
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `No document or section found for ID ${documentId}.`,
+          },
+        ],
+        structuredContent: {
+          documentationVersion: this.documentation.documentationVersion,
+          documentId,
+          sectionId: sectionId ?? null,
+          found: false,
+          title: null,
+          sourceRevision: null,
+          sections: [],
+          truncated: false,
+          nextCursor: null,
+        },
+      };
 
     const sections = document.sections
       .map(
@@ -94,10 +181,10 @@ export class DocumentationTools {
       )
       .join('\n\n');
     const truncationNotice = document.truncated
-      ? '\n\n[Document excerpt truncated to limit output size. Use search_docs to find a narrower section.]'
+      ? `\n\n[Document excerpt truncated. Continue with cursor: ${document.nextCursor}]`
       : '';
 
-    return [
+    const formatted = [
       `# ${document.title}`,
       `Documentation major: v${this.documentation.documentationVersion}`,
       `Document ID: ${document.documentId}`,
@@ -106,5 +193,19 @@ export class DocumentationTools {
       sections,
       truncationNotice,
     ].join('\n');
+    return {
+      content: [{ type: 'text' as const, text: formatted }],
+      structuredContent: {
+        documentationVersion: this.documentation.documentationVersion,
+        documentId,
+        sectionId: sectionId ?? null,
+        found: true,
+        title: document.title,
+        sourceRevision: document.sourceRevision,
+        sections: document.sections,
+        truncated: document.truncated,
+        nextCursor: document.nextCursor ?? null,
+      },
+    };
   }
 }

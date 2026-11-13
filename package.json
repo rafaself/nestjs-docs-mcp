@@ -52,7 +52,8 @@
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand",
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watchAll",
     "test:cov": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --runInBand",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test"
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
+    "search:evaluate": "npm run build && node scripts/evaluate-search.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.4.0",

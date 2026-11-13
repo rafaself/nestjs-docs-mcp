@@ -81,6 +81,66 @@ describe('DocumentationSearchService', () => {
     expect(sectionCharacters).toBeLessThanOrEqual(MAX_FETCH_DOCUMENT_CHARS);
   });
 
+  it('retrieves a matched section and continues without losing text', () => {
+    const text = 'hello 🌍 authorization '.repeat(2500);
+    const corpus = ingestSnapshot({
+      version: 12,
+      ref: 'master',
+      revision: 'e'.repeat(40),
+      documents: [
+        {
+          path: 'content/large.md',
+          canonicalUrl: 'https://docs.nestjs.com/large',
+          markdown: `# Large document\n\n## Target\n\n${text}\n\n## Later\n\nunique-later-marker`,
+        },
+      ],
+    });
+    service.indexCorpus(corpus);
+    const docId = corpus.documents[0]!.id;
+    const hit = service.search('unique-later-marker')[0]!;
+    const target = service.fetchDocument(docId, hit.chunkId)!;
+    expect(
+      target.sections.map((section) => section.markdown).join(''),
+    ).toContain('unique-later-marker');
+    expect(
+      target.sections.map((section) => section.markdown).join(''),
+    ).not.toContain('authorization');
+    let cursor: string | undefined;
+    let complete = '';
+    do {
+      const page = service.fetchDocument(docId, undefined, cursor)!;
+      complete += page.sections.map((section) => section.markdown).join('');
+      cursor = page.nextCursor;
+    } while (cursor);
+    expect(complete).toContain(text.trim());
+    expect(complete).toContain('unique-later-marker');
+    expect(() => service.fetchDocument(docId, undefined, '999:0')).toThrow(
+      BadRequestException,
+    );
+    expect(service.fetchDocument(docId, 'missing')).toBeNull();
+    const firstPage = service.fetchDocument(docId)!;
+    expect(firstPage.nextCursor).toBeDefined();
+    expect(() =>
+      service.fetchDocument(docId, hit.chunkId, firstPage.nextCursor),
+    ).toThrow(/cursor/u);
+    const updated = ingestSnapshot({
+      version: 12,
+      ref: 'master',
+      revision: 'f'.repeat(40),
+      documents: [
+        {
+          path: 'content/large.md',
+          canonicalUrl: 'https://docs.nestjs.com/large',
+          markdown: `# Large document\n\n## Target\n\n${text} changed`,
+        },
+      ],
+    });
+    service.indexCorpus(updated);
+    expect(() =>
+      service.fetchDocument(docId, undefined, firstPage.nextCursor),
+    ).toThrow(/cursor/u);
+  });
+
   it('validates query input and bounds the result limit', () => {
     expect(() => service.search(42)).toThrow(BadRequestException);
     expect(() => service.search('x'.repeat(257))).toThrow(BadRequestException);
