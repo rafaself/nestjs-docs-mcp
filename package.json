@@ -69,6 +69,7 @@
     "start:stdio": "node dist/apps/mcp-server/bootstrap/stdio.js",
     "docs:build": "npm run build && node apps/docs-indexer/dist/cli.js build",
     "docs:ingest": "npm run build && node apps/docs-indexer/dist/cli.js ingest",
+    "package:verify": "node scripts/release/verify-npm-package.mjs",
     "search:index": "npm run build && node apps/docs-indexer/dist/cli.js index",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings=0",

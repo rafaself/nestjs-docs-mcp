@@ -60,9 +60,17 @@ npm run start:stdio
 npm run start:prod
 ```
 
-The server reads only the configured index path, regardless of the working directory. A fresh checkout needs indexes before the server or `npm pack` can run. After the index-update workflow has published its first bundle, download `documentation-indexes.tar.gz` from the latest [`docs-index-*` GitHub prerelease](https://github.com/rafaself/nestjs-docs-mcp/releases), then extract it into the repository's `data/` directory. Each major has a SQLite file and matching `documentation-v<major>.manifest.json` runtime manifest alongside the corpus and bundle manifest.
+The server reads only the configured index path, regardless of the working directory. A fresh checkout has no index bundle because generated indexes are not committed. After the index-update workflow has published a bundle, download `documentation-indexes.tar.gz` from a [`docs-index-*` GitHub prerelease](https://github.com/rafaself/nestjs-docs-mcp/releases) and extract it into a temporary directory. Pass that directory to `package:verify` as shown below; the command validates and stages its contents before packaging.
 
-`npm pack` builds all workspaces and requires a complete index bundle in `data/`: both corpus JSON files, both SQLite indexes, per-index runtime manifests, and their matching bundle manifest. It validates corpus hashes and exact corpus-to-index row parity, SQLite and FTS5 integrity, index hashes, and version/revision metadata before packing. The corpus files are used for this check but excluded from the npm tarball. The packed-package check then installs the generated tarball into a temporary production-only project and exercises both NestJS majors through the stdio executable. It confirms that the bundled generic engine resolves without the repository, searches and fetches use the packaged indexes, stdout contains protocol messages, and shutdown is clean. The tarball exposes stdio as `nestjs-docs-mcp` and loopback HTTP as `nestjs-docs-mcp-http`; it includes both entry points, the engine dependency, both SQLite indexes and runtime manifests, the bundle manifest, README, and license notices, while excluding the indexer, tests, source documentation, and corpora.
+`package:verify` accepts an extracted complete index bundle or can regenerate one from the official NestJS sources:
+
+```sh
+npm run package:verify -- --bundle-dir /path/to/extracted/documentation-indexes
+# Or explicitly resolve and ingest the current upstream revisions:
+npm run package:verify -- --regenerate
+```
+
+The bundle directory must contain both corpus JSON files, both SQLite indexes, per-index runtime manifests, and the bundle manifest. The command validates the source bundle, stages it in ignored `data/`, and runs `npm pack`. If packaging or its end-to-end check fails, the previous `data/` directory is restored. A successful run leaves the validated bundle staged for local MCP use. The package validation checks corpus hashes and exact corpus-to-index row parity, SQLite and FTS5 integrity, index hashes, and version/revision metadata. Corpus files are used for validation but excluded from the npm tarball. The packed-package check installs the generated tarball into a temporary production-only project and exercises both NestJS majors through the stdio executable. It confirms that the bundled generic engine resolves without the repository, searches and fetches use the packaged indexes, stdout contains protocol messages, and shutdown is clean. The tarball exposes stdio as `nestjs-docs-mcp` and loopback HTTP as `nestjs-docs-mcp-http`; it includes both entry points, the engine dependency, both SQLite indexes and runtime manifests, the bundle manifest, README, and license notices, while excluding the indexer, tests, source documentation, and corpora.
 
 To rebuild indexes locally from the official sources instead of downloading the latest release bundle:
 
@@ -75,22 +83,7 @@ NESTJS_VERSION=11 npm run search:index
 
 This local ingestion path creates corpus and index files but not the release manifest required by `npm pack`; use a validated release bundle when preparing a package.
 
-Before the first automated bundle is available, generate the package bundle from official sources and copy its validated indexes into `data/`:
-
-```sh
-set -euo pipefail
-bundle_dir="$(mktemp -d)"
-trap 'rm -r "$bundle_dir"' EXIT
-node scripts/release/synchronize-documentation-indexes.mjs --output "$bundle_dir/indexes"
-mkdir -p data
-cp "$bundle_dir/indexes/documentation-v11.json" \
-  "$bundle_dir/indexes/documentation-v11.sqlite" \
-  "$bundle_dir/indexes/documentation-v11.manifest.json" \
-  "$bundle_dir/indexes/documentation-v12.json" \
-  "$bundle_dir/indexes/documentation-v12.sqlite" \
-  "$bundle_dir/indexes/documentation-v12.manifest.json" \
-  "$bundle_dir/indexes/manifest.json" data/
-```
+`package:verify -- --regenerate` covers the first bundle too; it generates the corpus, indexes, and manifests in a temporary directory, validates them, and only then stages them for package verification.
 
 ## Connect from Codex
 

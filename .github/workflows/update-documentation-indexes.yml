@@ -104,15 +104,7 @@ jobs:
           WORK_DIR: ${{ steps.previous.outputs.work_dir }}
         run: |
           set -euo pipefail
-          mkdir -p data "$WORK_DIR/package"
-          cp "$WORK_DIR/next/documentation-v11.json" \
-            "$WORK_DIR/next/documentation-v11.sqlite" \
-            "$WORK_DIR/next/documentation-v11.manifest.json" \
-            "$WORK_DIR/next/documentation-v12.json" \
-            "$WORK_DIR/next/documentation-v12.sqlite" \
-            "$WORK_DIR/next/documentation-v12.manifest.json" \
-            "$WORK_DIR/next/manifest.json" data/
-          npm pack --pack-destination "$WORK_DIR/package"
+          npm run package:verify -- --bundle-dir "$WORK_DIR/next"
 
       - name: Create and verify index bundle
         if: steps.sync.outputs.changed == 'true'

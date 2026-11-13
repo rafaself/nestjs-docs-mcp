@@ -21,8 +21,10 @@ import {
 import { DocumentationIndexRuntimeManifestSchema } from '@nestjs-docs/documentation-engine/domain/documentation-index-manifest.schemas.js';
 
 const rootDirectory = fileURLToPath(new URL('../../', import.meta.url));
-export async function verifyPackage(root = rootDirectory) {
-  const dataDirectory = resolve(root, 'data');
+export async function verifyPackage(root = rootDirectory, dataDirectoryPath) {
+  const dataDirectory = dataDirectoryPath
+    ? resolve(dataDirectoryPath)
+    : resolve(root, 'data');
   const packageMetadata = packageMetadataSchema.parse(
     JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8')),
   );
