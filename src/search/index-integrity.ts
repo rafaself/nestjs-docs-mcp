@@ -117,10 +117,16 @@ export function validateDocumentationIndex(
         )
         .run();
     } catch (error) {
-      try {
-        database.exec('ROLLBACK');
-      } catch {
-        // Some SQLite errors roll back the active transaction automatically.
+      if (database.isTransaction) {
+        try {
+          database.exec('ROLLBACK');
+        } catch (rollbackError) {
+          throw new AggregateError(
+            [error, rollbackError],
+            `NestJS v${version} FTS5 integrity check and rollback failed`,
+            { cause: rollbackError },
+          );
+        }
       }
       throw new Error(`NestJS v${version} FTS5 integrity check failed`, {
         cause: error,

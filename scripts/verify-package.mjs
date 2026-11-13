@@ -168,10 +168,16 @@ function checkFtsIntegrity(database, version) {
       )
       .run();
   } catch (error) {
-    try {
-      database.exec('ROLLBACK');
-    } catch {
-      // Some SQLite errors roll back the active transaction automatically.
+    if (database.isTransaction) {
+      try {
+        database.exec('ROLLBACK');
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          `NestJS v${version} FTS5 integrity check and rollback failed`,
+          { cause: rollbackError },
+        );
+      }
     }
     throw new Error(`NestJS v${version} FTS5 integrity check failed`, {
       cause: error,
@@ -183,9 +189,11 @@ function checkFtsIntegrity(database, version) {
 async function requireFile(path) {
   try {
     await access(path);
-  } catch {
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
     throw new Error(
       `Required package asset is missing: ${path}. Extract the latest documentation index release into data/, or generate a new bundle with scripts/synchronize-documentation-indexes.mjs before packing.`,
+      { cause: error },
     );
   }
 }
