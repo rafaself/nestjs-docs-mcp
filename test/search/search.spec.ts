@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { buildSearchExpression } from '../../src/search/search-input.js';
 import { loadSearchCorpus } from '../fixtures/search.fixtures.js';
 import { TestSearchIndex as DocumentationSearchService } from '../fixtures/test-search-index.js';
 
@@ -58,6 +59,15 @@ describe('DocumentationSearchService', () => {
         Array.from({ length: 33 }, (_, index) => `word${index}`).join(' '),
       ),
     ).toThrow('at most 32 terms');
+  });
+
+  it('adds a quoted phrase while keeping query terms out of the FTS language', () => {
+    expect(buildSearchExpression('request scoped providers', 10)).toBe(
+      '"request scoped providers" OR "request" OR "scoped" OR "providers"',
+    );
+    expect(buildSearchExpression('one OR title:*', 10)).toBe(
+      '"one OR title" OR "one" OR "OR" OR "title"',
+    );
   });
 
   it('validates query input and bounds the result limit', () => {

@@ -38,8 +38,16 @@ export function buildSearchExpression(query: unknown, limit: number): string {
       `Search query must contain at most ${MAX_SEARCH_QUERY_TERMS} terms`,
     );
   }
-  // Quoted terms keep caller input out of the FTS5 query language.
-  return terms.map((term) => `"${term.replaceAll('"', '""')}"`).join(' OR ');
+  // Quote every token so user text stays data, including in phrase queries.
+  const quote = (term: string): string => `"${term.replaceAll('"', '""')}"`;
+  const quotedTerms = terms.map(quote);
+  const alternatives = quotedTerms.join(' OR ');
+  if (terms.length < 2) return alternatives;
+
+  // The exact phrase clause gives contiguous multiword matches a relevance
+  // lift; the original OR terms remain as a recall fallback.
+  const phrase = quote(terms.join(' '));
+  return `${phrase} OR ${alternatives}`;
 }
 
 export function validateDocumentId(
